@@ -8,6 +8,8 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.time.Duration;
 import java.util.function.Consumer;
 import me.alexisbinh.openteams.api.extension.CommandRegistry;
 import me.alexisbinh.openteams.api.extension.PlaceholderRegistry;
@@ -40,13 +42,22 @@ public final class ExtensionRegistries {
     private final Map<String, OwnedValue<MutationPolicyRegistry.PolicyContribution>> policies =
             new ConcurrentHashMap<>();
     private final Consumer<String> warningSink;
+    private final Duration policyDeadline;
 
     public ExtensionRegistries() {
-        this(message -> { });
+        this(message -> { }, Duration.ofMillis(500));
     }
 
     public ExtensionRegistries(Consumer<String> warningSink) {
+        this(warningSink, Duration.ofMillis(500));
+    }
+
+    public ExtensionRegistries(Consumer<String> warningSink, Duration policyDeadline) {
         this.warningSink = Objects.requireNonNull(warningSink, "warningSink");
+        this.policyDeadline = Objects.requireNonNull(policyDeadline, "policyDeadline");
+        if (policyDeadline.isNegative() || policyDeadline.isZero()) {
+            throw new IllegalArgumentException("Policy deadline must be positive");
+        }
     }
 
     private final CommandRegistry commandRegistry = this::registerCommand;
@@ -111,17 +122,42 @@ public final class ExtensionRegistries {
         var ordered = policies.values().stream()
                 .sorted(java.util.Comparator.comparingInt(value -> value.value().priority()))
                 .toList();
+        var deadline = System.nanoTime() + policyDeadline.toNanos();
         for (var owned : ordered) {
             var contribution = owned.value();
+            var remaining = deadline - System.nanoTime();
+            if (remaining <= 0) {
+                warningSink.accept("Global mutation policy deadline exhausted; "
+                        + "remaining policies were skipped fail-open");
+                break;
+            }
+            java.util.concurrent.CompletableFuture<PolicyDecision> future = null;
             try {
-                var decision = contribution.policy().evaluate(intent).toCompletableFuture().get(
-                        contribution.timeout().toMillis(), TimeUnit.MILLISECONDS);
+                future = contribution.policy().evaluate(intent).toCompletableFuture();
+                var timeoutNanos = Math.min(
+                        contribution.timeout().toNanos(), remaining);
+                var decision = future.get(timeoutNanos, TimeUnit.NANOSECONDS);
                 if (!decision.allowed()) {
                     return decision;
                 }
+            } catch (TimeoutException exception) {
+                if (future != null) {
+                    future.cancel(true);
+                }
+                warningSink.accept("Mutation policy " + owned.owner() + ":"
+                        + contribution.key()
+                        + " timed out; continuing fail-open");
+            } catch (InterruptedException exception) {
+                if (future != null) {
+                    future.cancel(true);
+                }
+                Thread.currentThread().interrupt();
+                warningSink.accept("Mutation policy evaluation was interrupted; "
+                        + "continuing fail-open");
+                break;
             } catch (Exception exception) {
                 warningSink.accept("Mutation policy " + owned.owner() + ":" + contribution.key()
-                        + " failed or timed out; continuing fail-open: " + exception.getMessage());
+                        + " failed; continuing fail-open: " + exception.getMessage());
             }
         }
         return PolicyDecision.allow();

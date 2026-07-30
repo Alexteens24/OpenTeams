@@ -15,6 +15,8 @@ registries used by independent addons.
 - Cache-only chat and friendly-fire hot paths
 - Persistent team-chat toggle and staff spy
 - Read-only degradation, database lease recovery and cache rebuild
+- Transaction-level fencing against stale writers after lease takeover
+- Atomic cache publication and batched recovery
 - Admin doctor and retention cleanup commands
 - Folia-aware entity/global scheduling
 

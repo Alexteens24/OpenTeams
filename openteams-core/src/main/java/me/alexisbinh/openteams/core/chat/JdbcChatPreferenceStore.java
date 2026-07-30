@@ -3,14 +3,21 @@ package me.alexisbinh.openteams.core.chat;
 import java.sql.SQLException;
 import java.util.UUID;
 import javax.sql.DataSource;
+import me.alexisbinh.openteams.core.database.DatabaseManager;
 
 public final class JdbcChatPreferenceStore {
     private final DataSource dataSource;
     private final String namespace;
+    private final DatabaseManager database;
 
-    public JdbcChatPreferenceStore(DataSource dataSource, String namespace) {
+    public JdbcChatPreferenceStore(
+            DataSource dataSource,
+            String namespace,
+            DatabaseManager database
+    ) {
         this.dataSource = dataSource;
         this.namespace = namespace;
+        this.database = database;
     }
 
     public ChatPreferences load(UUID playerId) throws SQLException {
@@ -33,6 +40,7 @@ public final class JdbcChatPreferenceStore {
         try (var connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
+                database.assertLease(connection);
                 int updated;
                 try (var update = connection.prepareStatement("""
                         UPDATE player_preferences SET team_chat = ?, staff_spy = ?

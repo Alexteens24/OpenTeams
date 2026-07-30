@@ -6,6 +6,7 @@ import java.sql.SQLException;
 import java.time.Clock;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import org.flywaydb.core.Flyway;
 
 public final class DatabaseManager implements AutoCloseable {
@@ -15,6 +16,7 @@ public final class DatabaseManager implements AutoCloseable {
     private final Clock clock;
     private final String instanceId = UUID.randomUUID().toString();
     private final AtomicBoolean leaseHeld = new AtomicBoolean();
+    private final AtomicLong fenceToken = new AtomicLong();
     private HikariDataSource dataSource;
 
     public DatabaseManager(DatabaseConfig config, Clock clock) {
@@ -53,14 +55,15 @@ public final class DatabaseManager implements AutoCloseable {
                 .validateMigrationNaming(true)
                 .load()
                 .migrate();
-        seedRoles();
         acquireLease();
+        seedRoles();
     }
 
     private void seedRoles() throws SQLException {
         try (var connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
+                assertLease(connection);
                 if (roleCount(connection) == 0) {
                     seedRole(connection, "owner", "Owner", 1000, 1, true);
                     seedRole(connection, "co_owner", "Co-owner", 750, null, false);
@@ -151,45 +154,103 @@ public final class DatabaseManager implements AutoCloseable {
     }
 
     public void acquireLease() throws SQLException {
-        var now = clock.millis();
-        try (var connection = dataSource.getConnection()) {
-            connection.setAutoCommit(false);
-            try {
-                String currentOwner = null;
-                long expiry = 0;
-                try (var select = connection.prepareStatement(
-                        "SELECT instance_id, expires_at FROM core_leases WHERE namespace = ?")) {
-                    select.setString(1, config.namespace());
-                    try (var result = select.executeQuery()) {
-                        if (result.next()) {
-                            currentOwner = result.getString(1);
-                            expiry = result.getLong(2);
+        for (var attempt = 0; attempt < 5; attempt++) {
+            var now = clock.millis();
+            try (var connection = dataSource.getConnection()) {
+                connection.setAutoCommit(false);
+                try {
+                    ensureFenceCounter(connection);
+                    String currentOwner = null;
+                    long expiry = 0;
+                    try (var select = connection.prepareStatement(
+                            "SELECT instance_id, expires_at FROM core_leases WHERE namespace = ?")) {
+                        select.setString(1, config.namespace());
+                        try (var result = select.executeQuery()) {
+                            if (result.next()) {
+                                currentOwner = result.getString(1);
+                                expiry = result.getLong(2);
+                            }
                         }
                     }
+                    if (currentOwner != null && !currentOwner.equals(instanceId) && expiry > now) {
+                        throw new LeaseLostException(
+                                "Database namespace is already leased by " + currentOwner);
+                    }
+                    var token = nextFenceToken(connection);
+                    try (var delete = connection.prepareStatement(
+                            "DELETE FROM core_leases WHERE namespace = ?")) {
+                        delete.setString(1, config.namespace());
+                        delete.executeUpdate();
+                    }
+                    try (var insert = connection.prepareStatement("""
+                            INSERT INTO core_leases(
+                                namespace,instance_id,fence_token,validation_counter,
+                                heartbeat_at,expires_at
+                            ) VALUES(?,?,?,0,?,?)
+                            """)) {
+                        insert.setString(1, config.namespace());
+                        insert.setString(2, instanceId);
+                        insert.setLong(3, token);
+                        insert.setLong(4, now);
+                        insert.setLong(5, now + LEASE_MILLIS);
+                        insert.executeUpdate();
+                    }
+                    connection.commit();
+                    fenceToken.set(token);
+                    leaseHeld.set(true);
+                    return;
+                } catch (LeaseLostException exception) {
+                    connection.rollback();
+                    throw exception;
+                } catch (SQLException exception) {
+                    connection.rollback();
+                    if (attempt == 4) {
+                        throw exception;
+                    }
+                    Thread.onSpinWait();
                 }
-                if (currentOwner != null && !currentOwner.equals(instanceId) && expiry > now) {
-                    throw new SQLException("Database namespace is already leased by " + currentOwner);
-                }
-                try (var delete = connection.prepareStatement(
-                        "DELETE FROM core_leases WHERE namespace = ?")) {
-                    delete.setString(1, config.namespace());
-                    delete.executeUpdate();
-                }
-                try (var insert = connection.prepareStatement(
-                        "INSERT INTO core_leases(namespace, instance_id, heartbeat_at, expires_at) VALUES(?,?,?,?)")) {
-                    insert.setString(1, config.namespace());
-                    insert.setString(2, instanceId);
-                    insert.setLong(3, now);
-                    insert.setLong(4, now + LEASE_MILLIS);
-                    insert.executeUpdate();
-                }
-                connection.commit();
-                leaseHeld.set(true);
-            } catch (SQLException exception) {
-                connection.rollback();
-                throw exception;
             }
         }
+        throw new SQLException("Could not acquire a fencing token");
+    }
+
+    private void ensureFenceCounter(java.sql.Connection connection) throws SQLException {
+        try (var statement = connection.prepareStatement("""
+                INSERT INTO core_lease_fences(namespace,next_token)
+                SELECT ?,1 WHERE NOT EXISTS (
+                    SELECT 1 FROM core_lease_fences WHERE namespace = ?
+                )
+                """)) {
+            statement.setString(1, config.namespace());
+            statement.setString(2, config.namespace());
+            statement.executeUpdate();
+        }
+    }
+
+    private long nextFenceToken(java.sql.Connection connection) throws SQLException {
+        long token;
+        try (var select = connection.prepareStatement(
+                "SELECT next_token FROM core_lease_fences WHERE namespace = ?")) {
+            select.setString(1, config.namespace());
+            try (var result = select.executeQuery()) {
+                if (!result.next()) {
+                    throw new SQLException("Missing lease fence counter");
+                }
+                token = result.getLong(1);
+            }
+        }
+        try (var update = connection.prepareStatement("""
+                UPDATE core_lease_fences SET next_token = ?
+                WHERE namespace = ? AND next_token = ?
+                """)) {
+            update.setLong(1, token + 1);
+            update.setString(2, config.namespace());
+            update.setLong(3, token);
+            if (update.executeUpdate() != 1) {
+                throw new SQLException("Concurrent fencing token acquisition");
+            }
+        }
+        return token;
     }
 
     public boolean heartbeat() {
@@ -198,12 +259,16 @@ public final class DatabaseManager implements AutoCloseable {
         try (var connection = dataSource.getConnection();
              var update = connection.prepareStatement("""
                      UPDATE core_leases SET heartbeat_at = ?, expires_at = ?
-                     WHERE namespace = ? AND instance_id = ?
+                     WHERE namespace = ? AND instance_id = ? AND fence_token = ?
                      """)) {
+            update.setQueryTimeout((int) Math.min(
+                    Integer.MAX_VALUE,
+                    Math.max(1, (config.connectionTimeoutMillis() + 999) / 1000)));
             update.setLong(1, now);
             update.setLong(2, now + LEASE_MILLIS);
             update.setString(3, config.namespace());
             update.setString(4, instanceId);
+            update.setLong(5, fenceToken.get());
             updated = update.executeUpdate() == 1;
             leaseHeld.set(updated);
         } catch (SQLException exception) {
@@ -232,6 +297,39 @@ public final class DatabaseManager implements AutoCloseable {
 
     public boolean leaseHeld() {
         return leaseHeld.get();
+    }
+
+    public long fenceToken() {
+        return fenceToken.get();
+    }
+
+    /**
+     * Validates and locks the current lease row inside a domain transaction.
+     * A takeover must update/delete the same row and therefore cannot pass this
+     * transaction until it commits or rolls back.
+     */
+    public void assertLease(java.sql.Connection connection) throws SQLException {
+        var token = fenceToken.get();
+        if (!leaseHeld.get() || token <= 0) {
+            throw new LeaseLostException("This instance does not hold a lease");
+        }
+        try (var statement = connection.prepareStatement("""
+                UPDATE core_leases SET heartbeat_at = ?
+                    , validation_counter = validation_counter + 1
+                WHERE namespace = ? AND instance_id = ? AND fence_token = ?
+                  AND expires_at > ?
+                """)) {
+            var now = clock.millis();
+            statement.setLong(1, now);
+            statement.setString(2, config.namespace());
+            statement.setString(3, instanceId);
+            statement.setLong(4, token);
+            statement.setLong(5, now);
+            if (statement.executeUpdate() != 1) {
+                leaseHeld.set(false);
+                throw new LeaseLostException("Lease fencing token is no longer valid");
+            }
+        }
     }
 
     public DatabaseReport doctor() throws SQLException {
@@ -276,6 +374,7 @@ public final class DatabaseManager implements AutoCloseable {
         try (var connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
+                assertLease(connection);
                 var invitations = deleteExpired(connection, "team_invitations");
                 var requests = deleteExpired(connection, "team_join_requests");
                 var bans = deleteExpired(connection, "team_bans");
@@ -362,9 +461,13 @@ public final class DatabaseManager implements AutoCloseable {
         if (leaseHeld.get()) {
             try (var connection = dataSource.getConnection();
                  var delete = connection.prepareStatement(
-                         "DELETE FROM core_leases WHERE namespace = ? AND instance_id = ?")) {
+                        """
+                        DELETE FROM core_leases
+                        WHERE namespace = ? AND instance_id = ? AND fence_token = ?
+                        """)) {
                 delete.setString(1, config.namespace());
                 delete.setString(2, instanceId);
+                delete.setLong(3, fenceToken.get());
                 delete.executeUpdate();
             } catch (SQLException ignored) {
                 // Lease expires automatically after an unclean shutdown.

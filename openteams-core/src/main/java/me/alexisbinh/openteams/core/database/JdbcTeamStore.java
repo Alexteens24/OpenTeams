@@ -7,7 +7,12 @@ import java.sql.SQLException;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import javax.sql.DataSource;
 import me.alexisbinh.openteams.api.TeamErrorCode;
@@ -25,19 +30,22 @@ public final class JdbcTeamStore {
     private final int defaultMemberLimit;
     private final long invitationLifetimeMillis;
     private final ThreadLocal<String> activeCorrelationId = new ThreadLocal<>();
+    private final DatabaseManager database;
 
     public JdbcTeamStore(
             DataSource dataSource,
             String namespace,
             Clock clock,
             int defaultMemberLimit,
-            long invitationLifetimeMillis
+            long invitationLifetimeMillis,
+            DatabaseManager database
     ) {
         this.dataSource = dataSource;
         this.namespace = namespace;
         this.clock = clock;
         this.defaultMemberLimit = defaultMemberLimit;
         this.invitationLifetimeMillis = invitationLifetimeMillis;
+        this.database = database;
     }
 
     public Optional<TeamSnapshot> find(TeamId id) throws SQLException {
@@ -58,6 +66,47 @@ public final class JdbcTeamStore {
         }
     }
 
+    public Map<UUID, TeamSnapshot> findByPlayers(Collection<UUID> playerIds)
+            throws SQLException {
+        if (playerIds.isEmpty()) {
+            return Map.of();
+        }
+        try (var connection = dataSource.getConnection()) {
+            var teamByPlayer = new HashMap<UUID, TeamId>();
+            var ids = new ArrayList<>(playerIds);
+            for (var offset = 0; offset < ids.size(); offset += 500) {
+                var chunk = ids.subList(offset, Math.min(offset + 500, ids.size()));
+                var placeholders = String.join(",", java.util.Collections.nCopies(
+                        chunk.size(), "?"));
+                try (var statement = connection.prepareStatement(
+                        "SELECT player_id,team_id FROM team_members"
+                                + " WHERE namespace = ? AND player_id IN (" + placeholders + ")")) {
+                    statement.setString(1, namespace);
+                    for (var index = 0; index < chunk.size(); index++) {
+                        statement.setString(index + 2, chunk.get(index).toString());
+                    }
+                    try (var result = statement.executeQuery()) {
+                        while (result.next()) {
+                            teamByPlayer.put(
+                                    UUID.fromString(result.getString(1)),
+                                    TeamId.parse(result.getString(2)));
+                        }
+                    }
+                }
+            }
+            var snapshots = loadMany(
+                    connection, new java.util.HashSet<>(teamByPlayer.values()));
+            var result = new LinkedHashMap<UUID, TeamSnapshot>();
+            teamByPlayer.forEach((playerId, teamId) -> {
+                var snapshot = snapshots.get(teamId);
+                if (snapshot != null) {
+                    result.put(playerId, snapshot);
+                }
+            });
+            return Map.copyOf(result);
+        }
+    }
+
     public <T> T correlated(UUID correlationId, CorrelatedWork<T> work)
             throws SQLException, DomainFailure {
         activeCorrelationId.set(correlationId.toString());
@@ -75,10 +124,6 @@ public final class JdbcTeamStore {
             }
             var now = clock.millis();
             var id = TeamId.random();
-            insertClaim(connection, "team_name_claims", "normalized_name", TeamNames.normalize(name), id);
-            if (tag != null && !tag.isBlank()) {
-                insertClaim(connection, "team_tag_claims", "normalized_tag", TeamNames.normalize(tag), id);
-            }
             try (var statement = connection.prepareStatement("""
                     INSERT INTO teams(
                         namespace,id,display_name,normalized_name,tag,normalized_tag,owner_id,
@@ -99,6 +144,12 @@ public final class JdbcTeamStore {
                 statement.setLong(12, now);
                 statement.setLong(13, now);
                 statement.executeUpdate();
+            }
+            insertClaim(connection, "team_name_claims", "normalized_name",
+                    TeamNames.normalize(name), id);
+            if (tag != null && !tag.isBlank()) {
+                insertClaim(connection, "team_tag_claims", "normalized_tag",
+                        TeamNames.normalize(tag), id);
             }
             insertMember(connection, id, actorId, "owner", now);
             audit(connection, id, actorId, "TEAM_CREATED", "{\"name\":\"" + json(name) + "\"}");
@@ -572,6 +623,106 @@ public final class JdbcTeamStore {
         }
     }
 
+    private Map<TeamId, TeamSnapshot> loadMany(
+            Connection connection,
+            Set<TeamId> teamIds
+    ) throws SQLException {
+        if (teamIds.isEmpty()) {
+            return Map.of();
+        }
+        var rows = new HashMap<TeamId, TeamRow>();
+        var members = new HashMap<TeamId, ArrayList<TeamMemberSnapshot>>();
+        var settings = new HashMap<TeamId, Map<String, String>>();
+        var ids = new ArrayList<>(teamIds);
+        var permissionCache = new HashMap<String, Set<String>>();
+        for (var offset = 0; offset < ids.size(); offset += 300) {
+            var chunk = ids.subList(offset, Math.min(offset + 300, ids.size()));
+            var in = String.join(",", java.util.Collections.nCopies(chunk.size(), "?"));
+            try (var statement = connection.prepareStatement("""
+                    SELECT id,display_name,normalized_name,tag,owner_id,state,visibility,
+                           member_limit,version,created_at,updated_at
+                    FROM teams WHERE namespace = ? AND id IN (
+                    """ + in + ")")) {
+                bindIds(statement, chunk);
+                try (var result = statement.executeQuery()) {
+                    while (result.next()) {
+                        var id = TeamId.parse(result.getString("id"));
+                        rows.put(id, new TeamRow(
+                                result.getString("display_name"),
+                                result.getString("normalized_name"),
+                                result.getString("tag"),
+                                UUID.fromString(result.getString("owner_id")),
+                                TeamState.valueOf(result.getString("state")),
+                                TeamVisibility.valueOf(result.getString("visibility")),
+                                result.getInt("member_limit"),
+                                result.getLong("version"),
+                                Instant.ofEpochMilli(result.getLong("created_at")),
+                                Instant.ofEpochMilli(result.getLong("updated_at"))));
+                    }
+                }
+            }
+            try (var statement = connection.prepareStatement("""
+                    SELECT team_id,player_id,role_key,joined_at,last_active_at
+                    FROM team_members WHERE namespace = ? AND team_id IN (
+                    """ + in + ")")) {
+                bindIds(statement, chunk);
+                try (var result = statement.executeQuery()) {
+                    while (result.next()) {
+                        var id = TeamId.parse(result.getString("team_id"));
+                        var role = result.getString("role_key");
+                        var permissions = permissionCache.get(role);
+                        if (permissions == null) {
+                            permissions = loadPermissions(connection, role);
+                            permissionCache.put(role, permissions);
+                        }
+                        members.computeIfAbsent(id, ignored -> new ArrayList<>()).add(
+                                new TeamMemberSnapshot(
+                                        UUID.fromString(result.getString("player_id")),
+                                        role,
+                                        permissions,
+                                        Instant.ofEpochMilli(result.getLong("joined_at")),
+                                        Instant.ofEpochMilli(result.getLong("last_active_at"))));
+                    }
+                }
+            }
+            try (var statement = connection.prepareStatement("""
+                    SELECT team_id,setting_key,setting_value
+                    FROM team_settings WHERE namespace = ? AND team_id IN (
+                    """ + in + ")")) {
+                bindIds(statement, chunk);
+                try (var result = statement.executeQuery()) {
+                    while (result.next()) {
+                        settings.computeIfAbsent(
+                                        TeamId.parse(result.getString("team_id")),
+                                        ignored -> new HashMap<>())
+                                .put(result.getString("setting_key"),
+                                        result.getString("setting_value"));
+                    }
+                }
+            }
+        }
+        var snapshots = new HashMap<TeamId, TeamSnapshot>();
+        rows.forEach((id, row) -> {
+            var teamMembers = members.getOrDefault(id, new ArrayList<>());
+            teamMembers.sort(java.util.Comparator.comparing(
+                    TeamMemberSnapshot::joinedAt));
+            snapshots.put(id, new TeamSnapshot(
+                    id, row.name(), row.normalizedName(), row.tag(), row.ownerId(),
+                    row.state(), row.visibility(), row.memberLimit(), row.version(),
+                    row.createdAt(), row.updatedAt(),
+                    settings.getOrDefault(id, Map.of()), teamMembers));
+        });
+        return Map.copyOf(snapshots);
+    }
+
+    private void bindIds(PreparedStatement statement, java.util.List<TeamId> ids)
+            throws SQLException {
+        statement.setString(1, namespace);
+        for (var index = 0; index < ids.size(); index++) {
+            statement.setString(index + 2, ids.get(index).toString());
+        }
+    }
+
     private java.util.Map<String, String> loadSettings(Connection connection, TeamId id)
             throws SQLException {
         var settings = new java.util.HashMap<String, String>();
@@ -929,6 +1080,7 @@ public final class JdbcTeamStore {
         try (var connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
+                database.assertLease(connection);
                 var value = work.run(connection);
                 connection.commit();
                 return value;
@@ -980,5 +1132,19 @@ public final class JdbcTeamStore {
     }
 
     private record RoleRow(int priority, Integer memberLimit) {
+    }
+
+    private record TeamRow(
+            String name,
+            String normalizedName,
+            String tag,
+            UUID ownerId,
+            TeamState state,
+            TeamVisibility visibility,
+            int memberLimit,
+            long version,
+            Instant createdAt,
+            Instant updatedAt
+    ) {
     }
 }

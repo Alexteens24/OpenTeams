@@ -29,6 +29,8 @@ import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public final class OpenTeamsPlugin extends JavaPlugin {
     private final RuntimeController runtime = new RuntimeController();
@@ -36,6 +38,8 @@ public final class OpenTeamsPlugin extends JavaPlugin {
     private TeamServiceImpl teamService;
     private TeamChatService teamChat;
     private final AtomicBoolean heartbeatRunning = new AtomicBoolean();
+    private final ExecutorService heartbeatExecutor = Executors.newSingleThreadExecutor(
+            Thread.ofVirtual().name("OpenTeams-Heartbeat-", 0).factory());
 
     @Override
     public void onEnable() {
@@ -54,9 +58,13 @@ public final class OpenTeamsPlugin extends JavaPlugin {
                     database.namespace(),
                     Clock.systemUTC(),
                     getConfig().getInt("team.default-member-limit", 20),
-                    getConfig().getLong("team.invitation-expiry-seconds", 604_800) * 1000
+                    getConfig().getLong("team.invitation-expiry-seconds", 604_800) * 1000,
+                    database
             );
-            var registries = new ExtensionRegistries(message -> getLogger().warning(message));
+            var registries = new ExtensionRegistries(
+                    message -> getLogger().warning(message),
+                    java.time.Duration.ofMillis(getConfig().getLong(
+                            "addons.policy-global-timeout-ms", 500)));
             registries.settings().register(this, new TeamSettingRegistry.Setting<>(
                     "friendly-fire",
                     Boolean.class,
@@ -86,13 +94,15 @@ public final class OpenTeamsPlugin extends JavaPlugin {
                     databaseConfig.type() == DatabaseConfig.Type.SQLITE ? 1 : databaseConfig.poolSize(),
                     runtime,
                     registries,
-                    event -> Bukkit.getPluginManager().callEvent(event)
+                    event -> Bukkit.getPluginManager().callEvent(event),
+                    database::leaseHeld
             );
             var api = new OpenTeamsImpl(teamService, registries, runtime);
             teamChat = new TeamChatService(
                     this,
                     teamService,
-                    new JdbcChatPreferenceStore(database.dataSource(), database.namespace()),
+                    new JdbcChatPreferenceStore(
+                            database.dataSource(), database.namespace(), database),
                     getConfig().getString("chat.format",
                             "<aqua>[<tag>]</aqua> <white><player>:</white> <gray><message></gray>"));
             var chatInterface = new ChatTeamUserInterface(teamService);
@@ -145,29 +155,34 @@ public final class OpenTeamsPlugin extends JavaPlugin {
             Bukkit.getServicesManager().register(OpenTeams.class, api, this, ServicePriority.Normal);
 
             Bukkit.getGlobalRegionScheduler().runAtFixedRate(this, task -> {
-                if (!heartbeatRunning.compareAndSet(false, true)) {
+                if (heartbeatExecutor.isShutdown()
+                        || !heartbeatRunning.compareAndSet(false, true)) {
                     return;
                 }
                 var onlineIdsForRecovery = Bukkit.getOnlinePlayers().stream()
                         .map(org.bukkit.entity.Player::getUniqueId)
                         .toList();
-                Thread.startVirtualThread(() -> {
-                    try {
-                        var healthy = database.heartbeat();
-                        if (!healthy) {
-                            var wasWritable = runtime.writable();
-                            runtime.degrade();
-                            if (wasWritable) {
-                                getLogger().severe(
-                                        "Database lease lost; OpenTeams entered read-only mode.");
+                try {
+                    heartbeatExecutor.execute(() -> {
+                        try {
+                            var healthy = database.heartbeat();
+                            if (!healthy) {
+                                var wasWritable = runtime.writable();
+                                runtime.degrade();
+                                if (wasWritable) {
+                                    getLogger().severe(
+                                            "Database lease lost; OpenTeams entered read-only mode.");
+                                }
+                            } else if (runtime.beginRecovery()) {
+                                recoverOnlineCache(onlineIdsForRecovery);
                             }
-                        } else if (runtime.beginRecovery()) {
-                            recoverOnlineCache(onlineIdsForRecovery);
+                        } finally {
+                            heartbeatRunning.set(false);
                         }
-                    } finally {
-                        heartbeatRunning.set(false);
-                    }
-                });
+                    });
+                } catch (java.util.concurrent.RejectedExecutionException exception) {
+                    heartbeatRunning.set(false);
+                }
             }, 300, 300);
 
             var onlineIds = Bukkit.getOnlinePlayers().stream()
@@ -194,6 +209,18 @@ public final class OpenTeamsPlugin extends JavaPlugin {
     public void onDisable() {
         runtime.stopping();
         Bukkit.getServicesManager().unregisterAll(this);
+        heartbeatExecutor.shutdown();
+        try {
+            if (!heartbeatExecutor.awaitTermination(
+                    5, java.util.concurrent.TimeUnit.SECONDS)) {
+                heartbeatExecutor.shutdownNow();
+                heartbeatExecutor.awaitTermination(
+                        5, java.util.concurrent.TimeUnit.SECONDS);
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            heartbeatExecutor.shutdownNow();
+        }
         if (teamChat != null) {
             teamChat.close();
         }

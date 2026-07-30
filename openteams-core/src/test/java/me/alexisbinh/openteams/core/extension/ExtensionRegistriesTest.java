@@ -80,6 +80,37 @@ class ExtensionRegistriesTest {
         assertThat(registries.commandContributions()).isEmpty();
     }
 
+    @Test
+    void globalPolicyDeadlineCancelsSlowFutureAndSkipsRemainingPolicies() {
+        var warnings = new java.util.ArrayList<String>();
+        var registries = new ExtensionRegistries(
+                warnings::add, Duration.ofMillis(25));
+        var slow = new CompletableFuture<PolicyDecision>();
+        var laterCalls = new java.util.concurrent.atomic.AtomicInteger();
+        registries.policies().register(plugin("slow-addon"),
+                new MutationPolicyRegistry.PolicyContribution(
+                        "slow", 0, Duration.ofSeconds(1), intent -> slow));
+        registries.policies().register(plugin("later-addon"),
+                new MutationPolicyRegistry.PolicyContribution(
+                        "later", 1, Duration.ofSeconds(1), intent -> {
+                            laterCalls.incrementAndGet();
+                            return CompletableFuture.completedFuture(PolicyDecision.allow());
+                        }));
+
+        var started = System.nanoTime();
+        var result = registries.evaluatePolicies(new MutationIntent(
+                UUID.randomUUID(), MutationType.TEAM_CREATE, UUID.randomUUID(),
+                null, null, Map.of()));
+        var elapsedMillis = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(
+                System.nanoTime() - started);
+
+        assertThat(result.allowed()).isTrue();
+        assertThat(elapsedMillis).isLessThan(250);
+        assertThat(slow.isCancelled()).isTrue();
+        assertThat(laterCalls).hasValue(0);
+        assertThat(warnings).isNotEmpty();
+    }
+
     private static Plugin plugin(String name) {
         return (Plugin) Proxy.newProxyInstance(
                 Plugin.class.getClassLoader(),

@@ -493,7 +493,8 @@ public final class TeamCommands {
         var parsed = arguments.isBlank() ? new String[0] : arguments.split("\\s+");
         contribution.handler().execute(source.getSender(), parsed)
                 .exceptionally(error -> {
-                    source.getSender().sendMessage(TeamCommands.error("Addon command failed."));
+                    dispatch(source.getSender(), () -> source.getSender().sendMessage(
+                            TeamCommands.error("Addon command failed.")));
                     plugin.getLogger().warning("Addon command '" + name + "' failed: " + error);
                     return 0;
                 });

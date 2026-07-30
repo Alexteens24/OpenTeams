@@ -5,8 +5,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.nio.file.Path;
 import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.UUID;
 import me.alexisbinh.openteams.api.TeamErrorCode;
+import me.alexisbinh.openteams.api.TeamId;
 import me.alexisbinh.openteams.api.TeamState;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -34,7 +37,8 @@ class JdbcTeamStoreTest {
         database = new DatabaseManager(config, Clock.systemUTC());
         database.start();
         store = new JdbcTeamStore(
-                database.dataSource(), config.namespace(), Clock.systemUTC(), 20, 60_000);
+                database.dataSource(), config.namespace(), Clock.systemUTC(), 20, 60_000,
+                database);
     }
 
     @AfterEach
@@ -177,5 +181,99 @@ class JdbcTeamStoreTest {
                 .containsEntry("openteams:friendly-fire", "true");
         assertThat(changed.version()).isGreaterThan(team.version());
         assertThat(database.doctor().healthy()).isTrue();
+    }
+
+    @Test
+    void batchMembershipLookupDeduplicatesTeamsAndOmitsAbsentPlayers()
+            throws Exception {
+        var owner = UUID.randomUUID();
+        var member = UUID.randomUUID();
+        var absent = UUID.randomUUID();
+        var team = store.create(owner, "Batch Team", "BATCH");
+        store.invite(team.id(), owner, member);
+        store.acceptInvitation(team.id(), member);
+
+        var result = store.findByPlayers(java.util.List.of(owner, member, absent));
+
+        assertThat(result).containsOnlyKeys(owner, member);
+        assertThat(result.get(owner).id()).isEqualTo(team.id());
+        assertThat(result.get(member).id()).isEqualTo(team.id());
+        assertThat(result.get(owner)).isSameAs(result.get(member));
+    }
+
+    @Test
+    void foreignKeysRejectOrphanedMembershipRows() throws Exception {
+        try (var connection = database.dataSource().getConnection();
+             var statement = connection.prepareStatement("""
+                     INSERT INTO team_members(
+                         namespace,player_id,team_id,role_key,joined_at,last_active_at,version
+                     ) VALUES(?,?,?,?,?,?,0)
+                     """)) {
+            statement.setString(1, "test");
+            statement.setString(2, UUID.randomUUID().toString());
+            statement.setString(3, TeamId.random().toString());
+            statement.setString(4, "member");
+            statement.setLong(5, 0);
+            statement.setLong(6, 0);
+
+            assertThatThrownBy(statement::executeUpdate)
+                    .isInstanceOf(java.sql.SQLException.class);
+        }
+    }
+
+    @Test
+    void staleInstanceCannotCommitAfterFencedLeaseTakeover() throws Exception {
+        var clock = new MutableClock(Instant.parse("2026-01-01T00:00:00Z"));
+        var config = new DatabaseConfig(
+                DatabaseConfig.Type.SQLITE,
+                "fence-test",
+                "jdbc:sqlite:" + temporaryDirectory.resolve("fence.db"),
+                "", "", 1, 3000);
+        try (var first = new DatabaseManager(config, clock)) {
+            first.start();
+            var firstStore = new JdbcTeamStore(
+                    first.dataSource(), config.namespace(), clock, 20, 60_000, first);
+            var owner = UUID.randomUUID();
+            var team = firstStore.create(owner, "Fenced Team", "FENCE");
+            var firstToken = first.fenceToken();
+
+            clock.advanceSeconds(46);
+            try (var second = new DatabaseManager(config, clock)) {
+                second.start();
+                assertThat(second.fenceToken()).isGreaterThan(firstToken);
+
+                assertThatThrownBy(() ->
+                        firstStore.rename(team.id(), owner, "Stale Writer"))
+                        .isInstanceOf(LeaseLostException.class);
+                assertThat(first.leaseHeld()).isFalse();
+            }
+        }
+    }
+
+    private static final class MutableClock extends Clock {
+        private Instant instant;
+
+        private MutableClock(Instant instant) {
+            this.instant = instant;
+        }
+
+        void advanceSeconds(long seconds) {
+            instant = instant.plusSeconds(seconds);
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneId.of("UTC");
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return this;
+        }
+
+        @Override
+        public Instant instant() {
+            return instant;
+        }
     }
 }

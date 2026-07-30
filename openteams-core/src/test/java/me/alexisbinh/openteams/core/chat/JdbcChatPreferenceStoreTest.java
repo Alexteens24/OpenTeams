@@ -25,13 +25,13 @@ class JdbcChatPreferenceStoreTest {
             database.start();
             var playerId = UUID.randomUUID();
             var store = new JdbcChatPreferenceStore(
-                    database.dataSource(), config.namespace());
+                    database.dataSource(), config.namespace(), database);
 
             assertThat(store.load(playerId)).isEqualTo(ChatPreferences.defaults());
             store.save(playerId, new ChatPreferences(true, true));
 
             var reopened = new JdbcChatPreferenceStore(
-                    database.dataSource(), config.namespace());
+                    database.dataSource(), config.namespace(), database);
             assertThat(reopened.load(playerId))
                     .isEqualTo(new ChatPreferences(true, true));
         }

@@ -12,6 +12,8 @@ import me.alexisbinh.openteams.api.TeamSnapshot;
 import me.alexisbinh.openteams.api.TeamState;
 import me.alexisbinh.openteams.api.TeamVisibility;
 import org.junit.jupiter.api.Test;
+import java.util.concurrent.Executors;
+import java.util.concurrent.CountDownLatch;
 
 class TeamCacheTest {
     @Test
@@ -30,6 +32,36 @@ class TeamCacheTest {
         assertThat(cache.membership(member).status())
                 .isEqualTo(MembershipLookup.Status.ABSENT);
         assertThat(cache.team(id)).contains(kicked);
+    }
+
+    @Test
+    void concurrentPublicationNeverLetsOlderVersionOverwriteNewerVersion()
+            throws Exception {
+        var cache = new TeamCache();
+        var owner = UUID.randomUUID();
+        var id = TeamId.random();
+        var start = new CountDownLatch(1);
+        try (var executor = Executors.newFixedThreadPool(8)) {
+            var futures = new java.util.ArrayList<java.util.concurrent.Future<?>>();
+            for (var thread = 0; thread < 8; thread++) {
+                final var offset = thread;
+                futures.add(executor.submit(() -> {
+                    start.await();
+                    for (var version = offset + 1; version <= 8_000; version += 8) {
+                        cache.put(snapshot(id, version, owner));
+                    }
+                    return null;
+                }));
+            }
+            start.countDown();
+            for (var future : futures) {
+                future.get();
+            }
+        }
+
+        assertThat(cache.team(id)).get()
+                .extracting(TeamSnapshot::version)
+                .isEqualTo(8_000L);
     }
 
     private static TeamSnapshot snapshot(

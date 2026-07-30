@@ -26,3 +26,6 @@ audit:
 
 chat:
   format: "<aqua>[<tag>]</aqua> <white><player>:</white> <gray><message></gray>"
+
+addons:
+  policy-global-timeout-ms: 500

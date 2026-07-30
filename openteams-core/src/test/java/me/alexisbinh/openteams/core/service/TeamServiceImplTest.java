@@ -34,6 +34,7 @@ class TeamServiceImplTest {
     private DatabaseManager database;
     private TeamServiceImpl service;
     private ExtensionRegistries registries;
+    private RuntimeController runtime;
     private final ArrayList<TeamMutationCommittedEvent> events = new ArrayList<>();
 
     @BeforeEach
@@ -46,12 +47,13 @@ class TeamServiceImplTest {
         database = new DatabaseManager(config, Clock.systemUTC());
         database.start();
         registries = new ExtensionRegistries();
-        var runtime = new RuntimeController();
+        runtime = new RuntimeController();
         runtime.writableAfterStartup();
         service = new TeamServiceImpl(
                 new JdbcTeamStore(database.dataSource(), config.namespace(),
-                        Clock.systemUTC(), 20, 60_000),
-                new TeamCache(), 1, runtime, registries, events::add);
+                        Clock.systemUTC(), 20, 60_000, database),
+                new TeamCache(), 1, runtime, registries, events::add,
+                database::leaseHeld);
     }
 
     @AfterEach
@@ -87,6 +89,33 @@ class TeamServiceImplTest {
         assertThat(result).isInstanceOfSatisfying(
                 OperationResult.Failure.class,
                 failure -> assertThat(failure.code()).isEqualTo(TeamErrorCode.FORBIDDEN));
+        assertThat(events).isEmpty();
+    }
+
+    @Test
+    void queuedMutationRechecksRuntimeAfterPolicyBeforeTransaction()
+            throws Exception {
+        var policyEntered = new java.util.concurrent.CountDownLatch(1);
+        var releasePolicy = new CompletableFuture<PolicyDecision>();
+        registries.policies().register(plugin("blocking-rules"),
+                new MutationPolicyRegistry.PolicyContribution(
+                        "block", 0, Duration.ofSeconds(2),
+                        intent -> {
+                            policyEntered.countDown();
+                            return releasePolicy;
+                        }));
+        var actor = UUID.randomUUID();
+        var resultFuture = service.create(new TeamRequests.Create(
+                actor, "Queued Team", "QUEUE")).toCompletableFuture();
+
+        assertThat(policyEntered.await(1, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        runtime.degrade();
+        releasePolicy.complete(PolicyDecision.allow());
+
+        assertThat(resultFuture.join()).isInstanceOfSatisfying(
+                OperationResult.Failure.class,
+                failure -> assertThat(failure.code()).isEqualTo(TeamErrorCode.READ_ONLY));
+        assertThat(service.findByPlayer(actor).toCompletableFuture().join()).isEmpty();
         assertThat(events).isEmpty();
     }
 

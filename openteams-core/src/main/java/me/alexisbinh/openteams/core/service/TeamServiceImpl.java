@@ -13,6 +13,7 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Semaphore;
 import java.util.function.Consumer;
+import java.util.function.BooleanSupplier;
 import me.alexisbinh.openteams.api.OperationResult;
 import me.alexisbinh.openteams.api.MembershipLookup;
 import me.alexisbinh.openteams.api.TeamErrorCode;
@@ -29,6 +30,7 @@ import me.alexisbinh.openteams.api.mutation.MutationType;
 import me.alexisbinh.openteams.core.cache.TeamCache;
 import me.alexisbinh.openteams.core.database.DomainFailure;
 import me.alexisbinh.openteams.core.database.JdbcTeamStore;
+import me.alexisbinh.openteams.core.database.LeaseLostException;
 import me.alexisbinh.openteams.core.domain.TeamNames;
 import me.alexisbinh.openteams.core.extension.ExtensionRegistries;
 import me.alexisbinh.openteams.core.runtime.RuntimeController;
@@ -41,6 +43,7 @@ public final class TeamServiceImpl implements TeamService, AutoCloseable {
     private final RuntimeController runtime;
     private final ExtensionRegistries registries;
     private final Consumer<TeamMutationCommittedEvent> eventPublisher;
+    private final BooleanSupplier leaseHeld;
 
     public TeamServiceImpl(
             JdbcTeamStore store,
@@ -48,13 +51,15 @@ public final class TeamServiceImpl implements TeamService, AutoCloseable {
             int maximumConcurrency,
             RuntimeController runtime,
             ExtensionRegistries registries,
-            Consumer<TeamMutationCommittedEvent> eventPublisher
+            Consumer<TeamMutationCommittedEvent> eventPublisher,
+            BooleanSupplier leaseHeld
     ) {
         this.store = store;
         this.cache = cache;
         this.runtime = runtime;
         this.registries = registries;
         this.eventPublisher = eventPublisher;
+        this.leaseHeld = leaseHeld;
         this.inFlight = new Semaphore(Math.max(1, maximumConcurrency));
         this.executor = java.util.concurrent.Executors.newThreadPerTaskExecutor(
                 Thread.ofVirtual().name("OpenTeams-Database-", 0).factory());
@@ -77,12 +82,7 @@ public final class TeamServiceImpl implements TeamService, AutoCloseable {
 
     @Override
     public TeamRelation relationCached(UUID firstPlayerId, UUID secondPlayerId) {
-        var first = cache.playerTeam(firstPlayerId);
-        var second = cache.playerTeam(secondPlayerId);
-        if (first.isEmpty() || second.isEmpty()) {
-            return TeamRelation.UNKNOWN;
-        }
-        return first.get().id().equals(second.get().id()) ? TeamRelation.SAME : TeamRelation.DIFFERENT;
+        return cache.relation(firstPlayerId, secondPlayerId);
     }
 
     @Override
@@ -129,17 +129,14 @@ public final class TeamServiceImpl implements TeamService, AutoCloseable {
         return CompletableFuture.runAsync(() -> {
             acquirePermit();
             try {
+                var byPlayer = store.findByPlayers(onlinePlayers);
                 var snapshots = new LinkedHashMap<TeamId, TeamSnapshot>();
-                var absent = new HashSet<UUID>();
-                for (var playerId : onlinePlayers) {
-                    var result = store.findByPlayer(playerId);
-                    if (result.isPresent()) {
-                        var enriched = withExtensionPermissions(result.get());
-                        snapshots.put(enriched.id(), enriched);
-                    } else {
-                        absent.add(playerId);
-                    }
-                }
+                byPlayer.values().forEach(snapshot -> {
+                    var enriched = withExtensionPermissions(snapshot);
+                    snapshots.put(enriched.id(), enriched);
+                });
+                var absent = new HashSet<>(onlinePlayers);
+                absent.removeAll(byPlayer.keySet());
                 cache.replaceOnline(snapshots.values(), absent);
             } catch (SQLException exception) {
                 throw new DatabaseOperationException(exception);
@@ -320,6 +317,12 @@ public final class TeamServiceImpl implements TeamService, AutoCloseable {
                 }
                 acquirePermit();
                 permitAcquired = true;
+                if (!runtime.writable() || !leaseHeld.getAsBoolean()) {
+                    return OperationResult.<TeamSnapshot>failure(
+                            TeamErrorCode.READ_ONLY,
+                            "openteams.error.read-only",
+                            intent.correlationId());
+                }
                 var before = intent.optionalTeamId().flatMap(cache::team).orElse(null);
                 for (var attempt = 0; attempt < 3; attempt++) {
                     try {
@@ -354,6 +357,11 @@ public final class TeamServiceImpl implements TeamService, AutoCloseable {
                 }
                 return OperationResult.<TeamSnapshot>failure(
                         TeamErrorCode.CONFLICT, "openteams.error.conflict",
+                        intent.correlationId());
+            } catch (LeaseLostException exception) {
+                runtime.degrade();
+                return OperationResult.<TeamSnapshot>failure(
+                        TeamErrorCode.READ_ONLY, "openteams.error.read-only",
                         intent.correlationId());
             } catch (SQLIntegrityConstraintViolationException exception) {
                 return OperationResult.<TeamSnapshot>failure(

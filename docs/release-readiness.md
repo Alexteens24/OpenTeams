@@ -9,6 +9,12 @@
   `LOADING`, `PRESENT`, `ABSENT` and `FAILED` membership state.
 - Database lease, degraded read-only mode and cache resynchronization before
   write recovery.
+- Monotonic database fencing token validated inside every Core write
+  transaction, preventing stale-writer commits after takeover.
+- Atomic team/membership cache publication with concurrent stale-version tests.
+- Batched online-player recovery with team snapshot deduplication.
+- Foreign keys for Core-owned team, role, member, invitation, ban and setting
+  relationships.
 - Correlation IDs shared by API results, audit records and asynchronous
   post-commit events.
 - Timeout-bounded, fail-open addon policy hooks.
@@ -22,7 +28,7 @@
 
 - Testcontainers coverage for MySQL and MariaDB, plus real Paper and Folia
   process tests.
-- Crash-injection tests at each documented transaction/cache boundary.
+- Broader crash-injection tests at each documented transaction/cache boundary.
 - Public CRUD/admin tooling for custom role templates and per-role permission
   overrides.
 - PlaceholderAPI adapter, chat moderation hook and richer localization of Core

@@ -21,7 +21,9 @@ CREATE TABLE team_name_claims (
     normalized_name VARCHAR(64) NOT NULL,
     team_id VARCHAR(36) NOT NULL,
     PRIMARY KEY (namespace, normalized_name),
-    UNIQUE (namespace, team_id)
+    UNIQUE (namespace, team_id),
+    FOREIGN KEY (namespace, team_id) REFERENCES teams(namespace, id)
+        ON DELETE CASCADE
 );
 
 CREATE TABLE team_tag_claims (
@@ -29,21 +31,10 @@ CREATE TABLE team_tag_claims (
     normalized_tag VARCHAR(16) NOT NULL,
     team_id VARCHAR(36) NOT NULL,
     PRIMARY KEY (namespace, normalized_tag),
-    UNIQUE (namespace, team_id)
+    UNIQUE (namespace, team_id),
+    FOREIGN KEY (namespace, team_id) REFERENCES teams(namespace, id)
+        ON DELETE CASCADE
 );
-
-CREATE TABLE team_members (
-    namespace VARCHAR(64) NOT NULL,
-    player_id VARCHAR(36) NOT NULL,
-    team_id VARCHAR(36) NOT NULL,
-    role_key VARCHAR(64) NOT NULL,
-    joined_at BIGINT NOT NULL,
-    last_active_at BIGINT NOT NULL,
-    version BIGINT NOT NULL,
-    PRIMARY KEY (namespace, player_id)
-);
-
-CREATE INDEX idx_team_members_team ON team_members(namespace, team_id);
 
 CREATE TABLE role_templates (
     namespace VARCHAR(64) NOT NULL,
@@ -59,12 +50,31 @@ CREATE TABLE role_permissions (
     namespace VARCHAR(64) NOT NULL,
     role_key VARCHAR(64) NOT NULL,
     permission_key VARCHAR(128) NOT NULL,
-    PRIMARY KEY (namespace, role_key, permission_key)
+    PRIMARY KEY (namespace, role_key, permission_key),
+    FOREIGN KEY (namespace, role_key) REFERENCES role_templates(namespace, role_key)
+        ON DELETE CASCADE
 );
 
 -- The default namespace roles are inserted by Core after migration because
 -- namespace is a runtime configuration value. Core only seeds them when the
 -- namespace has no role definitions, so administrator customizations persist.
+
+CREATE TABLE team_members (
+    namespace VARCHAR(64) NOT NULL,
+    player_id VARCHAR(36) NOT NULL,
+    team_id VARCHAR(36) NOT NULL,
+    role_key VARCHAR(64) NOT NULL,
+    joined_at BIGINT NOT NULL,
+    last_active_at BIGINT NOT NULL,
+    version BIGINT NOT NULL,
+    PRIMARY KEY (namespace, player_id),
+    FOREIGN KEY (namespace, team_id) REFERENCES teams(namespace, id)
+        ON DELETE CASCADE,
+    FOREIGN KEY (namespace, role_key) REFERENCES role_templates(namespace, role_key)
+        ON DELETE RESTRICT
+);
+
+CREATE INDEX idx_team_members_team ON team_members(namespace, team_id);
 
 CREATE TABLE team_invitations (
     namespace VARCHAR(64) NOT NULL,
@@ -73,7 +83,9 @@ CREATE TABLE team_invitations (
     inviter_id VARCHAR(36) NOT NULL,
     created_at BIGINT NOT NULL,
     expires_at BIGINT NOT NULL,
-    PRIMARY KEY (namespace, team_id, target_id)
+    PRIMARY KEY (namespace, team_id, target_id),
+    FOREIGN KEY (namespace, team_id) REFERENCES teams(namespace, id)
+        ON DELETE CASCADE
 );
 
 CREATE INDEX idx_team_invitations_target ON team_invitations(namespace, target_id);
@@ -84,7 +96,9 @@ CREATE TABLE team_join_requests (
     player_id VARCHAR(36) NOT NULL,
     created_at BIGINT NOT NULL,
     expires_at BIGINT NOT NULL,
-    PRIMARY KEY (namespace, team_id, player_id)
+    PRIMARY KEY (namespace, team_id, player_id),
+    FOREIGN KEY (namespace, team_id) REFERENCES teams(namespace, id)
+        ON DELETE CASCADE
 );
 
 CREATE INDEX idx_team_join_requests_expiry
@@ -98,7 +112,9 @@ CREATE TABLE team_bans (
     reason VARCHAR(255),
     created_at BIGINT NOT NULL,
     expires_at BIGINT,
-    PRIMARY KEY (namespace, team_id, player_id)
+    PRIMARY KEY (namespace, team_id, player_id),
+    FOREIGN KEY (namespace, team_id) REFERENCES teams(namespace, id)
+        ON DELETE CASCADE
 );
 
 CREATE INDEX idx_team_bans_expiry ON team_bans(namespace, expires_at);
@@ -109,7 +125,9 @@ CREATE TABLE team_settings (
     setting_key VARCHAR(128) NOT NULL,
     setting_value TEXT NOT NULL,
     version BIGINT NOT NULL,
-    PRIMARY KEY (namespace, team_id, setting_key)
+    PRIMARY KEY (namespace, team_id, setting_key),
+    FOREIGN KEY (namespace, team_id) REFERENCES teams(namespace, id)
+        ON DELETE CASCADE
 );
 
 CREATE TABLE player_preferences (
@@ -139,9 +157,17 @@ CREATE TABLE audit_entries (
 CREATE INDEX idx_audit_team_time ON audit_entries(namespace, team_id, created_at);
 CREATE INDEX idx_audit_actor_time ON audit_entries(namespace, actor_id, created_at);
 
+CREATE TABLE core_lease_fences (
+    namespace VARCHAR(64) NOT NULL,
+    next_token BIGINT NOT NULL,
+    PRIMARY KEY (namespace)
+);
+
 CREATE TABLE core_leases (
     namespace VARCHAR(64) NOT NULL,
     instance_id VARCHAR(36) NOT NULL,
+    fence_token BIGINT NOT NULL,
+    validation_counter BIGINT NOT NULL,
     heartbeat_at BIGINT NOT NULL,
     expires_at BIGINT NOT NULL,
     PRIMARY KEY (namespace)
