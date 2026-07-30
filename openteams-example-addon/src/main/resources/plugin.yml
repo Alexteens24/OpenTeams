@@ -1,0 +1,6 @@
+name: OpenTeams-ExampleAddon
+version: '1.0.0-SNAPSHOT'
+main: me.alexisbinh.openteams.example.ExampleAddonPlugin
+api-version: '1.21.11'
+folia-supported: true
+depend: [OpenTeams]

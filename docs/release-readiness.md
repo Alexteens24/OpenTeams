@@ -1,0 +1,35 @@
+# Core 1.0 release readiness
+
+## Implemented
+
+- Authoritative SQLite/MySQL/MariaDB JDBC layer and automatic Flyway baseline.
+- Atomic lifecycle, invitation, join request, ban, owner transfer, role and
+  typed addon-setting mutations.
+- Immutable cache snapshots with stale-version rejection and explicit
+  `LOADING`, `PRESENT`, `ABSENT` and `FAILED` membership state.
+- Database lease, degraded read-only mode and cache resynchronization before
+  write recovery.
+- Correlation IDs shared by API results, audit records and asynchronous
+  post-commit events.
+- Timeout-bounded, fail-open addon policy hooks.
+- Plugin-owned commands, placeholders, permissions, settings, translations,
+  policies and UI contributions with automatic disable cleanup.
+- Cache-only friendly-fire and team-chat paths; persisted chat toggle/staff spy.
+- `/teamadmin doctor` and confirmed retention cleanup.
+- SQLite integration tests, cache tests and addon policy/lifecycle tests.
+
+## Release gates still required
+
+- Testcontainers coverage for MySQL and MariaDB, plus real Paper and Folia
+  process tests.
+- Crash-injection tests at each documented transaction/cache boundary.
+- Public CRUD/admin tooling for custom role templates and per-role permission
+  overrides.
+- PlaceholderAPI adapter, chat moderation hook and richer localization of Core
+  command responses.
+- Benchmark suite for chat, damage, placeholders and high-contention writes.
+- API compatibility check (for example japicmp) and generated reference docs.
+- TeamChest remains a separate addon milestone and is not part of the Core jar.
+
+The project version is `1.0.0-SNAPSHOT`; this checklist prevents treating the
+artifact as a production-stable 1.0 release prematurely.

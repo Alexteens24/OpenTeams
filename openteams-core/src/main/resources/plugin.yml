@@ -1,0 +1,15 @@
+name: OpenTeams
+version: '1.0.0-SNAPSHOT'
+main: me.alexisbinh.openteams.core.OpenTeamsPlugin
+description: Correct, extensible team platform for Paper and Folia
+author: Alexis Binh
+license: Apache-2.0
+api-version: '1.21.11'
+folia-supported: true
+permissions:
+  openteams.command.team:
+    default: true
+  openteams.admin:
+    default: op
+  openteams.admin.spy:
+    default: op

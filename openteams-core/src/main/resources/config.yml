@@ -1,0 +1,28 @@
+database:
+  type: sqlite
+  namespace: default
+  sqlite-file: openteams.db
+  host: localhost
+  port: 3306
+  database: openteams
+  username: openteams
+  password: change-me
+  pool-size: 8
+  connection-timeout-ms: 3000
+
+team:
+  default-member-limit: 20
+  invitation-expiry-seconds: 604800
+
+ui:
+  mode: auto
+  default-locale: en_US
+
+friendly-fire:
+  mode: deny
+
+audit:
+  retention-days: 90
+
+chat:
+  format: "<aqua>[<tag>]</aqua> <white><player>:</white> <gray><message></gray>"

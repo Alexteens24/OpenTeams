@@ -1,0 +1,19 @@
+package me.alexisbinh.openteams.api.mutation;
+
+public enum MutationType {
+    TEAM_CREATE,
+    TEAM_DISBAND,
+    MEMBER_INVITE,
+    INVITATION_ACCEPT,
+    MEMBER_LEAVE,
+    MEMBER_KICK,
+    OWNER_TRANSFER,
+    TEAM_RENAME,
+    TEAM_TAG_CHANGE,
+    JOIN_REQUEST_CREATE,
+    JOIN_REQUEST_ACCEPT,
+    MEMBER_BAN,
+    MEMBER_UNBAN,
+    MEMBER_ROLE_CHANGE,
+    TEAM_SETTING_CHANGE
+}

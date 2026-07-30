@@ -1,0 +1,16 @@
+package me.alexisbinh.openteams.api;
+
+public enum TeamErrorCode {
+    NOT_FOUND,
+    FORBIDDEN,
+    INVALID_ARGUMENT,
+    CONFLICT,
+    LIMIT_REACHED,
+    ALREADY_IN_TEAM,
+    NOT_IN_TEAM,
+    INVITATION_NOT_FOUND,
+    INVITATION_EXPIRED,
+    READ_ONLY,
+    DATABASE_UNAVAILABLE,
+    INTERNAL_ERROR
+}
