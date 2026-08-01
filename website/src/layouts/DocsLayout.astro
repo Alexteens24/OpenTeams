@@ -17,11 +17,18 @@ const base = import.meta.env.BASE_URL;
     <meta name="viewport" content="width=device-width" />
     <meta name="description" content={description} />
     <meta name="theme-color" content="#0b1110" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
     <link rel="icon" type="image/svg+xml" href={`${base}/favicon.svg`} />
     <title>{title}</title>
+    <script is:inline>
+      const savedTheme = localStorage.getItem("openteams-theme");
+      const preferredTheme = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+      document.documentElement.dataset.theme = savedTheme || preferredTheme;
+    </script>
   </head>
   <body>
-    <div class="page-glow" aria-hidden="true"></div>
     <slot />
   </body>
 </html>
