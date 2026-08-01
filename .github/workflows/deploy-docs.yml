@@ -10,6 +10,8 @@ on:
 
 permissions:
   contents: read
+  pages: write
+  id-token: write
 
 concurrency:
   group: pages
@@ -21,10 +23,26 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-      - name: Build Astro site
-        uses: withastro/action@v6
         with:
-          path: ./website
+          fetch-depth: 0
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+      - name: Setup Pages
+        uses: actions/configure-pages@v6
+      - name: Install dependencies
+        run: npm ci
+        working-directory: website
+      - name: Build VitePress site
+        run: npm run docs:build
+        working-directory: website
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: website/.vitepress/dist
 
   deploy:
     environment:

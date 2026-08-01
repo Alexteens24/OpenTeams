@@ -1,0 +1,63 @@
+:root {
+  --vp-c-brand-1: #169b68;
+  --vp-c-brand-2: #12b879;
+  --vp-c-brand-3: #42d99a;
+  --vp-c-brand-soft: rgba(22, 155, 104, .12);
+  --vp-c-bg: #f7fbf9;
+  --vp-c-bg-alt: #eef6f2;
+  --vp-c-bg-soft: #f0f7f4;
+  --vp-c-border: #d5e5dd;
+  --vp-c-divider: #dfece6;
+  --vp-font-family-base: "Inter", "Manrope", ui-sans-serif, system-ui, sans-serif;
+  --vp-font-family-mono: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(125deg, #087b50 5%, #35d397 70%);
+  --vp-home-hero-image-background-image: radial-gradient(circle, rgba(36, 205, 142, .28), transparent 65%);
+  --vp-home-hero-image-filter: blur(55px);
+  --vp-button-brand-bg: #108d5e;
+  --vp-button-brand-hover-bg: #0ea36a;
+  --vp-button-brand-active-bg: #08784e;
+  --vp-button-brand-text: #fff;
+}
+
+.dark {
+  --vp-c-brand-1: #64e3ae;
+  --vp-c-brand-2: #82edbd;
+  --vp-c-brand-3: #a5f4d1;
+  --vp-c-brand-soft: rgba(100, 227, 174, .14);
+  --vp-c-bg: #07100f;
+  --vp-c-bg-alt: #0a1513;
+  --vp-c-bg-soft: #0e1c19;
+  --vp-c-border: #1d342e;
+  --vp-c-divider: #152a25;
+  --vp-button-brand-bg: #55dba4;
+  --vp-button-brand-hover-bg: #74e7b7;
+  --vp-button-brand-active-bg: #38c68d;
+  --vp-button-brand-text: #06120e;
+}
+
+.VPNavBarTitle .logo { border-radius: 9px; box-shadow: 0 0 20px var(--vp-c-brand-soft); }
+.VPNavBarTitle .title { font-weight: 800; letter-spacing: -.03em; }
+.VPHomeHero .name, .VPHomeHero .text { letter-spacing: -.055em; }
+.VPHomeHero .tagline { max-width: 620px; line-height: 1.75; }
+.VPHomeHero .image-bg { opacity: .8; }
+.VPFeature { border-color: var(--vp-c-border) !important; background: color-mix(in srgb, var(--vp-c-bg-soft) 72%, transparent) !important; transition: transform .2s ease, border-color .2s ease; }
+.VPFeature:hover { transform: translateY(-3px); border-color: var(--vp-c-brand-1) !important; }
+.VPFeature .icon { background: var(--vp-c-brand-soft) !important; }
+.vp-doc { animation: ot-fade-in .38s cubic-bezier(.16, 1, .3, 1); }
+.vp-doc h1 { letter-spacing: -.045em; }.vp-doc h2 { letter-spacing: -.025em; }.vp-doc a { font-weight: 600; }.vp-doc table { width: 100%; display: table; }.vp-doc table td code { white-space: nowrap; }.vp-doc div[class*="language-"] { border: 1px solid var(--vp-c-border); }
+
+.ot-card-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 24px 0 34px; }
+.ot-doc-card { position: relative; display: grid; grid-template-columns: 38px 1fr auto; gap: 13px; align-items: start; min-height: 122px; padding: 20px; border: 1px solid var(--vp-c-border); border-radius: 12px; color: var(--vp-c-text-1) !important; background: var(--vp-c-bg-soft); transition: .2s ease; }
+.ot-doc-card:hover { border-color: var(--vp-c-brand-1); transform: translateY(-2px); box-shadow: 0 14px 35px rgba(10, 70, 48, .08); }
+.ot-doc-card__icon { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 9px; color: var(--vp-c-brand-1); background: var(--vp-c-brand-soft); font-size: 16px; }.ot-doc-card strong { display: block; margin-bottom: 5px; font-size: 14px; }.ot-doc-card p { margin: 0; color: var(--vp-c-text-2); font-size: 12px; line-height: 1.6; }.ot-doc-card__arrow { color: var(--vp-c-text-3); }
+
+.ot-stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); margin: 26px 0; overflow: hidden; border: 1px solid var(--vp-c-border); border-radius: 12px; }.ot-stat-grid > * { margin: 0 !important; padding: 18px; border-right: 1px solid var(--vp-c-border); }.ot-stat-grid > *:last-child { border-right: 0; }
+.ot-config-group { margin: 26px 0; overflow: hidden; border: 1px solid var(--vp-c-border); border-radius: 12px; }.ot-config-group > header { padding: 18px 20px; border-bottom: 1px solid var(--vp-c-border); background: var(--vp-c-bg-soft); }.ot-config-group > header h3 { margin: 0; font-size: 16px; }.ot-config-group > header p { margin: 5px 0 0; color: var(--vp-c-text-2); font-size: 12px; }.ot-config-property { display: grid; grid-template-columns: minmax(220px, .8fr) 1.4fr; gap: 22px; padding: 20px; border-bottom: 1px solid var(--vp-c-divider); }.ot-config-property:last-child { border-bottom: 0; }.ot-config-property__meta { display: flex; flex-wrap: wrap; align-content: start; gap: 6px; }.ot-config-property__meta code { flex-basis: 100%; color: var(--vp-c-brand-1); font-size: 12px; }.ot-config-property__meta span, .ot-config-property__meta em, .ot-config-property__meta b { padding: 2px 6px; border-radius: 4px; font: normal 9px var(--vp-font-family-mono); }.ot-config-property__meta span { background: var(--vp-c-brand-soft); color: var(--vp-c-brand-1); }.ot-config-property__meta em { color: var(--vp-c-text-3); background: var(--vp-c-bg-alt); }.ot-config-property__meta b { color: var(--vp-c-danger-1); background: var(--vp-c-danger-soft); }.ot-config-property__body { color: var(--vp-c-text-2); font-size: 12px; }.ot-config-property__body > :first-child { margin-top: 0; }.ot-config-property__body > :last-child { margin-bottom: 0; }
+
+.ot-flow { display: grid; grid-template-columns: repeat(5, 1fr); gap: 7px; margin: 24px 0; }.ot-flow > div { padding: 14px 10px; border: 1px solid var(--vp-c-border); border-radius: 8px; background: var(--vp-c-bg-soft); text-align: center; }.ot-flow b, .ot-flow small { display: block; }.ot-flow b { color: var(--vp-c-brand-1); font: 600 10px var(--vp-font-family-mono); }.ot-flow small { margin-top: 4px; color: var(--vp-c-text-3); font-size: 9px; }
+.ot-badge { display: inline-flex; padding: 2px 7px; border-radius: 999px; color: var(--vp-c-brand-1); background: var(--vp-c-brand-soft); font: 600 10px var(--vp-font-family-mono); }
+
+@keyframes ot-fade-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (max-width: 700px) { .ot-card-grid { grid-template-columns: 1fr; }.ot-stat-grid { grid-template-columns: 1fr; }.ot-stat-grid > * { border-right: 0; border-bottom: 1px solid var(--vp-c-border); }.ot-stat-grid > *:last-child { border-bottom: 0; }.ot-config-property { grid-template-columns: 1fr; gap: 12px; }.ot-flow { grid-template-columns: 1fr 1fr; } }
+@media (prefers-reduced-motion: reduce) { .vp-doc { animation: none; }.VPFeature, .ot-doc-card { transition: none; } }
