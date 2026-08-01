@@ -10,3 +10,5 @@ run/
 website/node_modules/
 website/dist/
 website/.astro/
+website/.vitepress/cache/
+website/.vitepress/dist/
