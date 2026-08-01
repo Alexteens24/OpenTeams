@@ -59,16 +59,32 @@ public final class TeamCache {
         }
     }
 
-    public void markLoading(UUID playerId) {
-        setMembership(playerId, MembershipLookup.loading());
+    public MembershipLoad beginMembershipLoad(UUID playerId) {
+        var write = lock.writeLock();
+        write.lock();
+        try {
+            var generation = state.generations.merge(playerId, 1L, Long::sum);
+            state.memberships.put(playerId, MembershipLookup.loading());
+            return new MembershipLoad(playerId, generation);
+        } finally {
+            write.unlock();
+        }
     }
 
-    public void markAbsent(UUID playerId) {
-        setMembership(playerId, MembershipLookup.absent());
-    }
-
-    public void markFailed(UUID playerId) {
-        setMembership(playerId, MembershipLookup.failed());
+    public Map<UUID, MembershipLoad> beginMembershipLoads(Collection<UUID> playerIds) {
+        var loads = new HashMap<UUID, MembershipLoad>();
+        var write = lock.writeLock();
+        write.lock();
+        try {
+            playerIds.forEach(playerId -> {
+                var generation = state.generations.merge(playerId, 1L, Long::sum);
+                state.memberships.put(playerId, MembershipLookup.loading());
+                loads.put(playerId, new MembershipLoad(playerId, generation));
+            });
+            return Map.copyOf(loads);
+        } finally {
+            write.unlock();
+        }
     }
 
     public void put(TeamSnapshot snapshot) {
@@ -76,22 +92,42 @@ public final class TeamCache {
         write.lock();
         try {
             var previous = state.teams.get(snapshot.id());
-            if (previous != null && previous.version() > snapshot.version()) {
-                return;
-            }
-            if (previous != null) {
-                var currentMembers = snapshot.members().stream()
-                        .map(member -> member.playerId())
-                        .collect(java.util.stream.Collectors.toUnmodifiableSet());
-                previous.members().stream()
-                        .filter(member -> !currentMembers.contains(member.playerId()))
-                        .forEach(member -> state.memberships.put(
-                                member.playerId(), MembershipLookup.absent()));
-            }
-            state.teams.put(snapshot.id(), snapshot);
-            snapshot.members().forEach(member ->
-                    state.memberships.put(
-                            member.playerId(), MembershipLookup.present(snapshot)));
+            if (previous != null && previous.version() > snapshot.version()) return;
+            affectedPlayers(previous, snapshot).forEach(this::advanceGeneration);
+            putInternal(snapshot);
+        } finally {
+            write.unlock();
+        }
+    }
+
+    public void putFromQuery(TeamSnapshot snapshot) {
+        var write = lock.writeLock();
+        write.lock();
+        try {
+            putInternal(snapshot);
+        } finally {
+            write.unlock();
+        }
+    }
+
+    public boolean completeMembershipLoad(MembershipLoad load, Optional<TeamSnapshot> snapshot) {
+        var write = lock.writeLock();
+        write.lock();
+        try {
+            if (!current(load)) return false;
+            if (snapshot.isPresent()) putInternal(snapshot.get());
+            else state.memberships.put(load.playerId(), MembershipLookup.absent());
+            return true;
+        } finally {
+            write.unlock();
+        }
+    }
+
+    public void failMembershipLoad(MembershipLoad load) {
+        var write = lock.writeLock();
+        write.lock();
+        try {
+            if (current(load)) state.memberships.put(load.playerId(), MembershipLookup.failed());
         } finally {
             write.unlock();
         }
@@ -103,48 +139,83 @@ public final class TeamCache {
         try {
             var previous = state.teams.remove(id);
             if (previous != null) {
-                previous.members().forEach(member ->
-                        state.memberships.put(
-                                member.playerId(), MembershipLookup.absent()));
+                previous.members().forEach(member -> {
+                    advanceGeneration(member.playerId());
+                    state.memberships.put(
+                            member.playerId(), MembershipLookup.absent());
+                });
             }
         } finally {
             write.unlock();
         }
     }
 
-    public void replaceOnline(
-            Collection<TeamSnapshot> snapshots,
-            Set<UUID> absentPlayers
-    ) {
-        var replacement = new State();
-        snapshots.forEach(snapshot -> {
-            replacement.teams.put(snapshot.id(), snapshot);
-            snapshot.members().forEach(member -> replacement.memberships.put(
-                    member.playerId(), MembershipLookup.present(snapshot)));
-        });
-        absentPlayers.forEach(player ->
-                replacement.memberships.put(player, MembershipLookup.absent()));
+    public void reconcileMembershipLoads(Map<UUID, MembershipLoad> loads,
+                                         Map<UUID, TeamSnapshot> byPlayer) {
         var write = lock.writeLock();
         write.lock();
         try {
-            state = replacement;
+            byPlayer.values().stream().distinct().forEach(this::putInternal);
+            loads.forEach((playerId, load) -> {
+                if (!current(load)) return;
+                var snapshot = byPlayer.get(playerId);
+                state.memberships.put(playerId, snapshot == null
+                        ? MembershipLookup.absent() : MembershipLookup.present(snapshot));
+            });
         } finally {
             write.unlock();
         }
     }
 
-    private void setMembership(UUID playerId, MembershipLookup lookup) {
+    public void pruneOffline(Set<UUID> onlinePlayers) {
         var write = lock.writeLock();
         write.lock();
         try {
-            state.memberships.put(playerId, lookup);
+            state.memberships.keySet().removeIf(playerId -> !onlinePlayers.contains(playerId));
+            state.generations.keySet().removeIf(playerId -> !onlinePlayers.contains(playerId));
+            state.teams.entrySet().removeIf(entry -> entry.getValue().members().stream()
+                    .noneMatch(member -> onlinePlayers.contains(member.playerId())));
         } finally {
             write.unlock();
         }
+    }
+
+    private boolean putInternal(TeamSnapshot snapshot) {
+        var previous = state.teams.get(snapshot.id());
+        if (previous != null && previous.version() > snapshot.version()) return false;
+        if (previous != null) {
+            var currentMembers = snapshot.members().stream().map(member -> member.playerId())
+                    .collect(java.util.stream.Collectors.toUnmodifiableSet());
+            previous.members().stream().filter(member -> !currentMembers.contains(member.playerId()))
+                    .forEach(member -> state.memberships.put(member.playerId(), MembershipLookup.absent()));
+        }
+        state.teams.put(snapshot.id(), snapshot);
+        snapshot.members().forEach(member -> state.memberships.put(
+                member.playerId(), MembershipLookup.present(snapshot)));
+        return true;
+    }
+
+    private Set<UUID> affectedPlayers(TeamSnapshot previous, TeamSnapshot current) {
+        var players = new java.util.HashSet<UUID>();
+        if (previous != null) previous.members().forEach(member -> players.add(member.playerId()));
+        current.members().forEach(member -> players.add(member.playerId()));
+        return players;
+    }
+
+    private void advanceGeneration(UUID playerId) {
+        state.generations.merge(playerId, 1L, Long::sum);
+    }
+
+    private boolean current(MembershipLoad load) {
+        return state.generations.getOrDefault(load.playerId(), 0L) == load.generation();
     }
 
     private static final class State {
         private final Map<TeamId, TeamSnapshot> teams = new HashMap<>();
         private final Map<UUID, MembershipLookup> memberships = new HashMap<>();
+        private final Map<UUID, Long> generations = new HashMap<>();
+    }
+
+    public record MembershipLoad(UUID playerId, long generation) {
     }
 }

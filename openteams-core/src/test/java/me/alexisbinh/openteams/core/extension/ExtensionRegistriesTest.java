@@ -8,6 +8,7 @@ import java.util.concurrent.CompletableFuture;
 import java.time.Duration;
 import java.util.Map;
 import java.util.UUID;
+import java.util.Locale;
 import me.alexisbinh.openteams.api.extension.CommandRegistry;
 import me.alexisbinh.openteams.api.extension.MutationPolicyRegistry;
 import me.alexisbinh.openteams.api.mutation.MutationIntent;
@@ -78,6 +79,20 @@ class ExtensionRegistriesTest {
         registries.unregisterOwner(owner);
 
         assertThat(registries.commandContributions()).isEmpty();
+    }
+
+    @Test
+    void addonTranslationsResolveByLocaleAndAreRemovedWithOwner() {
+        var registries = new ExtensionRegistries();
+        var owner = plugin("Bank Addon");
+        registries.translations().register(owner, Locale.US,
+                Map.of("bank.ui.label", "Team bank"));
+
+        assertThat(registries.translation(Locale.US, "bank.ui.label")).isEqualTo("Team bank");
+        assertThat(registries.translation(Locale.FRANCE, "bank.ui.label")).isNull();
+
+        registries.unregisterOwner(owner);
+        assertThat(registries.translation(Locale.US, "bank.ui.label")).isNull();
     }
 
     @Test

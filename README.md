@@ -4,6 +4,8 @@ OpenTeams is a correctness-first team platform for Paper and Folia. The project
 separates an immutable public API from the Paper implementation and extension
 registries used by independent addons.
 
+Documentation: [alexteens24.github.io/OpenTeams](https://alexteens24.github.io/OpenTeams/)
+
 ## Current development baseline
 
 - Java 21 bytecode
@@ -14,6 +16,9 @@ registries used by independent addons.
 - Timeout-bounded addon policy hooks and plugin-owned extension lifecycle
 - Cache-only chat and friendly-fire hot paths
 - Persistent team-chat toggle and staff spy
+- Dialog-first player command center with public-team discovery, invitation and
+  join-request inboxes, offline roster names and risk-based confirmations
+- Clickable chat/command fallback when Paper Dialogs are disabled or unavailable
 - Read-only degradation, database lease recovery and cache rebuild
 - Transaction-level fencing against stale writers after lease takeover
 - Atomic cache publication and batched recovery
@@ -32,6 +37,10 @@ The deployable plugin is generated at
 The current `V1__core_schema.sql` is a consolidated development baseline.
 Delete development databases created by older alpha schemas; upgrade migrations
 will begin only after the first published schema is frozen.
+
+The bundled UI defaults to Vietnamese with a consistent small-caps style. Set
+`ui.follow-player-locale: true` to honor each Minecraft client's locale instead;
+unsupported or incomplete locales fall back to `ui.default-locale`.
 
 ## Modules
 

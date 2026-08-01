@@ -32,3 +32,22 @@ inventories.
 
 The example plugin in `openteams-example-addon` is the compatibility fixture for
 the supported registration lifecycle.
+
+## UI contributions
+
+`TeamUiRegistry.UiAction` targets a typed `DASHBOARD`, `MEMBERS` or `SETTINGS`
+area. Supply translation keys for both its label and description, a team
+permission, an availability predicate and an asynchronous handler. Core checks
+the permission, resolves addon translations and rejects stale UI contexts before
+calling the handler. Return `REFRESH` when the dashboard should be rebuilt after
+the action, or `CLOSE` when the addon owns the next interaction.
+
+UI handlers receive an immutable context containing the viewer, team ID and team
+version. Load fresh data through `TeamService` before doing long-lived work; do
+not retain the context as a live team object. Register matching localized strings
+through `TranslationRegistry` as demonstrated by the example addon.
+
+Player-facing query APIs expose paginated public-team discovery, pending
+invitations and requests, bans, roles, and the last known name directory. These
+queries are asynchronous and may touch JDBC; only the explicitly documented
+cached methods are safe for hot paths.

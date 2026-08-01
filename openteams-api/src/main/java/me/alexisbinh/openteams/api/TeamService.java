@@ -1,6 +1,9 @@
 package me.alexisbinh.openteams.api;
 
 import java.util.Optional;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletionStage;
 
@@ -25,6 +28,26 @@ public interface TeamService {
 
     CompletionStage<Optional<TeamSnapshot>> findByPlayer(UUID playerId);
 
+    CompletionStage<TeamDirectory.Page<TeamDirectory.TeamSummary>> searchPublicTeams(
+            String query, int page, int pageSize);
+
+    CompletionStage<List<TeamDirectory.Invitation>> invitations(UUID playerId);
+
+    CompletionStage<List<TeamDirectory.JoinRequest>> joinRequests(TeamId teamId);
+
+    CompletionStage<List<TeamDirectory.OutgoingJoinRequest>> joinRequestsByPlayer(UUID playerId);
+
+    CompletionStage<List<TeamDirectory.OutgoingInvitation>> outgoingInvitations(TeamId teamId);
+
+    CompletionStage<List<TeamDirectory.Ban>> bans(TeamId teamId);
+
+    CompletionStage<List<TeamDirectory.Role>> roles();
+
+    CompletionStage<Map<UUID, TeamDirectory.PlayerSummary>> resolvePlayers(
+            Collection<UUID> playerIds);
+
+    CompletionStage<Void> rememberPlayer(UUID playerId, String currentName);
+
     CompletionStage<OperationResult<TeamSnapshot>> create(TeamRequests.Create request);
 
     CompletionStage<OperationResult<TeamSnapshot>> disband(TeamRequests.TeamAction request);
@@ -32,6 +55,10 @@ public interface TeamService {
     CompletionStage<OperationResult<TeamSnapshot>> invite(TeamRequests.TargetAction request);
 
     CompletionStage<OperationResult<TeamSnapshot>> acceptInvitation(TeamRequests.TargetAction request);
+
+    CompletionStage<OperationResult<TeamSnapshot>> declineInvitation(TeamRequests.TargetAction request);
+
+    CompletionStage<OperationResult<TeamSnapshot>> revokeInvitation(TeamRequests.TargetAction request);
 
     CompletionStage<OperationResult<TeamSnapshot>> leave(TeamRequests.TeamAction request);
 
@@ -48,6 +75,12 @@ public interface TeamService {
     CompletionStage<OperationResult<TeamSnapshot>> acceptJoinRequest(
             TeamRequests.TargetAction request);
 
+    CompletionStage<OperationResult<TeamSnapshot>> rejectJoinRequest(
+            TeamRequests.TargetAction request);
+
+    CompletionStage<OperationResult<TeamSnapshot>> cancelJoinRequest(
+            TeamRequests.TeamAction request);
+
     CompletionStage<OperationResult<TeamSnapshot>> ban(TeamRequests.Ban request);
 
     CompletionStage<OperationResult<TeamSnapshot>> unban(TeamRequests.TargetAction request);
@@ -55,4 +88,7 @@ public interface TeamService {
     CompletionStage<OperationResult<TeamSnapshot>> changeRole(TeamRequests.ChangeRole request);
 
     CompletionStage<OperationResult<TeamSnapshot>> setSetting(TeamRequests.SetSetting request);
+
+    CompletionStage<OperationResult<TeamSnapshot>> setVisibility(
+            TeamRequests.SetVisibility request);
 }

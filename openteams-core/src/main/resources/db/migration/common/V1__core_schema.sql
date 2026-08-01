@@ -139,6 +139,21 @@ CREATE TABLE player_preferences (
     PRIMARY KEY (namespace, player_id)
 );
 
+CREATE TABLE player_directory (
+    namespace VARCHAR(64) NOT NULL,
+    player_id VARCHAR(36) NOT NULL,
+    last_known_name VARCHAR(16) NOT NULL,
+    normalized_name VARCHAR(16) NOT NULL,
+    updated_at BIGINT NOT NULL,
+    PRIMARY KEY (namespace, player_id)
+);
+
+CREATE INDEX idx_player_directory_name
+    ON player_directory(namespace, normalized_name);
+
+CREATE INDEX idx_teams_public_name
+    ON teams(namespace, visibility, state, normalized_name);
+
 CREATE TABLE audit_entries (
     namespace VARCHAR(64) NOT NULL,
     id VARCHAR(36) NOT NULL,

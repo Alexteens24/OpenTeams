@@ -190,6 +190,10 @@ public final class ExtensionRegistries {
                 .collect(java.util.stream.Collectors.toUnmodifiableSet());
     }
 
+    public boolean hasDefaultPermission(String roleKey, String permission) {
+        return defaultPermissions(roleKey).contains(permission);
+    }
+
     private static <T> boolean validEncodedValue(
             TeamSettingRegistry.Setting<T> setting,
             String encodedValue
@@ -239,6 +243,20 @@ public final class ExtensionRegistries {
 
     public Map<String, OwnedUiAction> uiContributions() {
         return Map.copyOf(uiActions);
+    }
+
+    public String translation(java.util.Locale locale, String key) {
+        var exact = locale.toLanguageTag();
+        var language = locale.getLanguage();
+        for (var entry : translations.entrySet()) {
+            var registeredLocale = entry.getKey().substring(entry.getKey().indexOf(':') + 1);
+            if ((registeredLocale.equalsIgnoreCase(exact)
+                    || registeredLocale.equalsIgnoreCase(language))
+                    && entry.getValue().value().containsKey(key)) {
+                return entry.getValue().value().get(key);
+            }
+        }
+        return null;
     }
 
     public void unregisterOwner(String owner) {

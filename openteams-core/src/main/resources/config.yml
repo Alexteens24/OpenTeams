@@ -16,7 +16,8 @@ team:
 
 ui:
   mode: auto
-  default-locale: en_US
+  default-locale: vi_VN
+  follow-player-locale: false
 
 friendly-fire:
   mode: deny

@@ -64,6 +64,47 @@ class TeamCacheTest {
                 .isEqualTo(8_000L);
     }
 
+    @Test
+    void staleMembershipLoadCannotOverwriteCommittedMutation() {
+        var cache = new TeamCache();
+        var player = UUID.randomUUID();
+        var team = snapshot(TeamId.random(), 1, player, player);
+        var load = cache.beginMembershipLoad(player);
+
+        cache.put(team);
+        var published = cache.completeMembershipLoad(load, java.util.Optional.empty());
+
+        assertThat(published).isFalse();
+        assertThat(cache.playerTeam(player)).contains(team);
+    }
+
+    @Test
+    void staleResyncCannotReplaceNewerPlayerLookup() {
+        var cache = new TeamCache();
+        var player = UUID.randomUUID();
+        var oldLoads = cache.beginMembershipLoads(java.util.List.of(player));
+        var currentLoad = cache.beginMembershipLoad(player);
+        var team = snapshot(TeamId.random(), 1, player, player);
+        cache.completeMembershipLoad(currentLoad, java.util.Optional.of(team));
+
+        cache.reconcileMembershipLoads(oldLoads, java.util.Map.of());
+
+        assertThat(cache.playerTeam(player)).contains(team);
+    }
+
+    @Test
+    void pruningRemovesTeamsWithoutOnlineMembers() {
+        var cache = new TeamCache();
+        var player = UUID.randomUUID();
+        var team = snapshot(TeamId.random(), 1, player, player);
+        cache.put(team);
+
+        cache.pruneOffline(java.util.Set.of());
+
+        assertThat(cache.team(team.id())).isEmpty();
+        assertThat(cache.playerTeam(player)).isEmpty();
+    }
+
     private static TeamSnapshot snapshot(
             TeamId id,
             long version,

@@ -53,18 +53,20 @@ public final class OpenTeamsPlugin extends JavaPlugin {
             database = new DatabaseManager(databaseConfig, Clock.systemUTC());
             database.start();
 
+            var registries = new ExtensionRegistries(
+                    message -> getLogger().warning(message),
+                    java.time.Duration.ofMillis(getConfig().getLong(
+                            "addons.policy-global-timeout-ms", 500)));
+
             var store = new JdbcTeamStore(
                     database.dataSource(),
                     database.namespace(),
                     Clock.systemUTC(),
                     getConfig().getInt("team.default-member-limit", 20),
                     getConfig().getLong("team.invitation-expiry-seconds", 604_800) * 1000,
-                    database
+                    database,
+                    registries::hasDefaultPermission
             );
-            var registries = new ExtensionRegistries(
-                    message -> getLogger().warning(message),
-                    java.time.Duration.ofMillis(getConfig().getLong(
-                            "addons.policy-global-timeout-ms", 500)));
             registries.settings().register(this, new TeamSettingRegistry.Setting<>(
                     "friendly-fire",
                     Boolean.class,
@@ -98,23 +100,27 @@ public final class OpenTeamsPlugin extends JavaPlugin {
                     database::leaseHeld
             );
             var api = new OpenTeamsImpl(teamService, registries, runtime);
+            var localizedMessages = new LocalizedMessages(Locale.forLanguageTag(
+                    getConfig().getString("ui.default-locale", "vi_VN").replace('_', '-')),
+                    registries::translation,
+                    getConfig().getBoolean("ui.follow-player-locale", false));
             teamChat = new TeamChatService(
                     this,
                     teamService,
                     new JdbcChatPreferenceStore(
                             database.dataSource(), database.namespace(), database),
                     getConfig().getString("chat.format",
-                            "<aqua>[<tag>]</aqua> <white><player>:</white> <gray><message></gray>"));
-            var chatInterface = new ChatTeamUserInterface(teamService);
+                            "<aqua>[<tag>]</aqua> <white><player>:</white> <gray><message></gray>"),
+                    localizedMessages);
+            var chatInterface = new ChatTeamUserInterface(teamService, localizedMessages);
             TeamUserInterface userInterface = switch (
                     getConfig().getString("ui.mode", "auto").toLowerCase(Locale.ROOT)) {
                 case "chat" -> chatInterface;
                 case "auto", "dialog" -> new DialogTeamUserInterface(
+                        this,
                         teamService,
                         chatInterface,
-                        new LocalizedMessages(Locale.forLanguageTag(
-                                getConfig().getString("ui.default-locale", "en_US")
-                                        .replace('_', '-'))),
+                        localizedMessages,
                         () -> registries.uiContributions().values().stream()
                                 .map(ExtensionRegistries.OwnedUiAction::action)
                                 .toList()
@@ -128,7 +134,8 @@ public final class OpenTeamsPlugin extends JavaPlugin {
                     registries,
                     database,
                     getConfig().getLong("audit.retention-days", 90) * 86_400_000L,
-                    teamChat);
+                    teamChat,
+                    localizedMessages);
 
             getLifecycleManager().registerEventHandler(LifecycleEvents.COMMANDS, event ->
             {

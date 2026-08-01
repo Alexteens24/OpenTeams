@@ -12,6 +12,9 @@ public final class TeamNames {
     }
 
     public static boolean validName(String value) {
+        if (value == null || value.isBlank()) {
+            return false;
+        }
         var normalized = normalize(value);
         return normalized.length() >= 3
                 && normalized.length() <= 24
@@ -24,7 +27,7 @@ public final class TeamNames {
             return true;
         }
         var normalized = normalize(value);
-        return normalized.length() >= 2
+        return normalized.length() >= 1
                 && normalized.length() <= 8
                 && normalized.codePoints().allMatch(Character::isLetterOrDigit);
     }

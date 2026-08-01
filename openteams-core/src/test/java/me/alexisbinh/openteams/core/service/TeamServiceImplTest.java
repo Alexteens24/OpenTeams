@@ -14,6 +14,7 @@ import me.alexisbinh.openteams.api.TeamErrorCode;
 import me.alexisbinh.openteams.api.TeamRequests;
 import me.alexisbinh.openteams.api.event.TeamMutationCommittedEvent;
 import me.alexisbinh.openteams.api.extension.MutationPolicyRegistry;
+import me.alexisbinh.openteams.api.extension.TeamPermissionRegistry;
 import me.alexisbinh.openteams.api.mutation.PolicyDecision;
 import me.alexisbinh.openteams.core.cache.TeamCache;
 import me.alexisbinh.openteams.core.database.DatabaseConfig;
@@ -51,7 +52,8 @@ class TeamServiceImplTest {
         runtime.writableAfterStartup();
         service = new TeamServiceImpl(
                 new JdbcTeamStore(database.dataSource(), config.namespace(),
-                        Clock.systemUTC(), 20, 60_000, database),
+                        Clock.systemUTC(), 20, 60_000, database,
+                        registries::hasDefaultPermission),
                 new TeamCache(), 1, runtime, registries, events::add,
                 database::leaseHeld);
     }
@@ -90,6 +92,42 @@ class TeamServiceImplTest {
                 OperationResult.Failure.class,
                 failure -> assertThat(failure.code()).isEqualTo(TeamErrorCode.FORBIDDEN));
         assertThat(events).isEmpty();
+    }
+
+    @Test
+    void ownerCanCreateAgainWithReleasedNameAndTagAfterDisband() {
+        var owner = UUID.randomUUID();
+        var created = service.create(new TeamRequests.Create(owner, "Reusable Team", "REUSE"))
+                .toCompletableFuture().join().optionalValue().orElseThrow();
+
+        assertThat(service.disband(new TeamRequests.TeamAction(owner, created.id()))
+                .toCompletableFuture().join()).isInstanceOf(OperationResult.Success.class);
+        assertThat(service.findByPlayerCached(owner)).isEmpty();
+
+        var recreated = service.create(new TeamRequests.Create(owner, "Reusable Team", "REUSE"))
+                .toCompletableFuture().join();
+        assertThat(recreated).isInstanceOf(OperationResult.Success.class);
+        assertThat(service.findByPlayerCached(owner)).isPresent()
+                .get().extracting(team -> team.id()).isNotEqualTo(created.id());
+    }
+
+    @Test
+    void addonPermissionDisappearsImmediatelyAfterRegistrationCloses() {
+        var owner = UUID.randomUUID();
+        var member = UUID.randomUUID();
+        var registration = registries.permissions().register(plugin("chat-addon"),
+                new TeamPermissionRegistry.Permission(
+                        "chat.use", "chat.permission.use", java.util.Set.of("member")));
+        var team = service.create(new TeamRequests.Create(owner, "Dynamic Team", "DYN"))
+                .toCompletableFuture().join().optionalValue().orElseThrow();
+        service.invite(new TeamRequests.TargetAction(owner, team.id(), member))
+                .toCompletableFuture().join();
+        service.acceptInvitation(new TeamRequests.TargetAction(member, team.id(), member))
+                .toCompletableFuture().join();
+
+        assertThat(service.hasPermissionCached(member, "chat.use")).isTrue();
+        registration.close();
+        assertThat(service.hasPermissionCached(member, "chat.use")).isFalse();
     }
 
     @Test

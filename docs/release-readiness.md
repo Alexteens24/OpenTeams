@@ -22,6 +22,9 @@
   policies and UI contributions with automatic disable cleanup.
 - Cache-only friendly-fire and team-chat paths; persisted chat toggle/staff spy.
 - `/teamadmin doctor` and confirmed retention cleanup.
+- Dialog-first player lifecycle, public-team discovery, player-name directory,
+  risk-based confirmations and clickable chat fallback.
+- English player-facing message catalog and addon translation resolution.
 - SQLite integration tests, cache tests and addon policy/lifecycle tests.
 
 ## Release gates still required
@@ -31,8 +34,8 @@
 - Broader crash-injection tests at each documented transaction/cache boundary.
 - Public CRUD/admin tooling for custom role templates and per-role permission
   overrides.
-- PlaceholderAPI adapter, chat moderation hook and richer localization of Core
-  command responses.
+- PlaceholderAPI adapter, chat moderation hook, complete Vietnamese coverage and
+  final localization pass for administrative responses.
 - Benchmark suite for chat, damage, placeholders and high-contention writes.
 - API compatibility check (for example japicmp) and generated reference docs.
 - TeamChest remains a separate addon milestone and is not part of the Core jar.
