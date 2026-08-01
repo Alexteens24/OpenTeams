@@ -3,9 +3,10 @@ package me.alexisbinh.openteams.core.service;
 import java.sql.SQLIntegrityConstraintViolationException;
 import java.sql.SQLException;
 import java.util.Collection;
-import java.util.HashSet;
+import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Optional;
+import java.util.Set;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -17,13 +18,14 @@ import java.util.function.BooleanSupplier;
 import me.alexisbinh.openteams.api.OperationResult;
 import me.alexisbinh.openteams.api.MembershipLookup;
 import me.alexisbinh.openteams.api.TeamErrorCode;
+import me.alexisbinh.openteams.api.TeamDirectory;
 import me.alexisbinh.openteams.api.TeamId;
 import me.alexisbinh.openteams.api.TeamRelation;
 import me.alexisbinh.openteams.api.TeamRequests;
 import me.alexisbinh.openteams.api.TeamService;
 import me.alexisbinh.openteams.api.TeamSnapshot;
 import me.alexisbinh.openteams.api.TeamState;
-import me.alexisbinh.openteams.api.TeamMemberSnapshot;
+import me.alexisbinh.openteams.api.TeamVisibility;
 import me.alexisbinh.openteams.api.event.TeamMutationCommittedEvent;
 import me.alexisbinh.openteams.api.mutation.MutationIntent;
 import me.alexisbinh.openteams.api.mutation.MutationType;
@@ -103,20 +105,75 @@ public final class TeamServiceImpl implements TeamService, AutoCloseable {
 
     @Override
     public CompletionStage<Optional<TeamSnapshot>> findByPlayer(UUID playerId) {
-        cache.markLoading(playerId);
+        var load = cache.beginMembershipLoad(playerId);
         return CompletableFuture.supplyAsync(() -> {
             acquirePermit();
             try {
                 var result = store.findByPlayer(playerId);
-                if (result.isPresent()) {
-                    result = result.map(this::withExtensionPermissions);
-                    cache.put(result.get());
-                } else {
-                    cache.markAbsent(playerId);
-                }
+                cache.completeMembershipLoad(load, result);
                 return result;
             } catch (SQLException exception) {
-                cache.markFailed(playerId);
+                cache.failMembershipLoad(load);
+                runtime.degrade();
+                throw new DatabaseOperationException(exception);
+            } finally {
+                inFlight.release();
+            }
+        }, executor);
+    }
+
+    @Override
+    public CompletionStage<TeamDirectory.Page<TeamDirectory.TeamSummary>> searchPublicTeams(
+            String query, int page, int pageSize) {
+        return queryValue(() -> store.searchPublicTeams(query, page, pageSize));
+    }
+
+    @Override
+    public CompletionStage<List<TeamDirectory.Invitation>> invitations(UUID playerId) {
+        return queryValue(() -> store.invitations(playerId));
+    }
+
+    @Override
+    public CompletionStage<List<TeamDirectory.JoinRequest>> joinRequests(TeamId teamId) {
+        return queryValue(() -> store.joinRequests(teamId));
+    }
+
+    @Override
+    public CompletionStage<List<TeamDirectory.OutgoingJoinRequest>> joinRequestsByPlayer(
+            UUID playerId) {
+        return queryValue(() -> store.joinRequestsByPlayer(playerId));
+    }
+
+    @Override
+    public CompletionStage<List<TeamDirectory.OutgoingInvitation>> outgoingInvitations(
+            TeamId teamId) {
+        return queryValue(() -> store.outgoingInvitations(teamId));
+    }
+
+    @Override
+    public CompletionStage<List<TeamDirectory.Ban>> bans(TeamId teamId) {
+        return queryValue(() -> store.bans(teamId));
+    }
+
+    @Override
+    public CompletionStage<List<TeamDirectory.Role>> roles() {
+        return queryValue(store::roles);
+    }
+
+    @Override
+    public CompletionStage<Map<UUID, TeamDirectory.PlayerSummary>> resolvePlayers(
+            Collection<UUID> playerIds) {
+        return queryValue(() -> store.resolvePlayers(playerIds));
+    }
+
+    @Override
+    public CompletionStage<Void> rememberPlayer(UUID playerId, String currentName) {
+        if (!runtime.writable()) return CompletableFuture.completedFuture(null);
+        return CompletableFuture.runAsync(() -> {
+            acquirePermit();
+            try {
+                store.rememberPlayer(playerId, currentName);
+            } catch (SQLException | DomainFailure exception) {
                 runtime.degrade();
                 throw new DatabaseOperationException(exception);
             } finally {
@@ -126,18 +183,19 @@ public final class TeamServiceImpl implements TeamService, AutoCloseable {
     }
 
     public CompletionStage<Void> resync(Collection<UUID> onlinePlayers) {
+        var loads = cache.beginMembershipLoads(onlinePlayers);
         return CompletableFuture.runAsync(() -> {
             acquirePermit();
             try {
                 var byPlayer = store.findByPlayers(onlinePlayers);
                 var snapshots = new LinkedHashMap<TeamId, TeamSnapshot>();
                 byPlayer.values().forEach(snapshot -> {
-                    var enriched = withExtensionPermissions(snapshot);
-                    snapshots.put(enriched.id(), enriched);
+                    snapshots.put(snapshot.id(), snapshot);
                 });
-                var absent = new HashSet<>(onlinePlayers);
-                absent.removeAll(byPlayer.keySet());
-                cache.replaceOnline(snapshots.values(), absent);
+                var enrichedByPlayer = new LinkedHashMap<UUID, TeamSnapshot>();
+                byPlayer.forEach((playerId, snapshot) ->
+                        enrichedByPlayer.put(playerId, snapshots.get(snapshot.id())));
+                cache.reconcileMembershipLoads(loads, enrichedByPlayer);
             } catch (SQLException exception) {
                 throw new DatabaseOperationException(exception);
             } finally {
@@ -146,10 +204,17 @@ public final class TeamServiceImpl implements TeamService, AutoCloseable {
         }, executor);
     }
 
+    public void pruneCache(Collection<UUID> onlinePlayers) {
+        cache.pruneOffline(Set.copyOf(onlinePlayers));
+    }
+
     @Override
     public CompletionStage<OperationResult<TeamSnapshot>> create(TeamRequests.Create request) {
-        if (!TeamNames.validName(request.name()) || !TeamNames.validTag(request.tag())) {
+        if (!TeamNames.validName(request.name())) {
             return completedFailure(TeamErrorCode.INVALID_ARGUMENT, "openteams.error.invalid-name");
+        }
+        if (!TeamNames.validTag(request.tag())) {
+            return completedFailure(TeamErrorCode.INVALID_ARGUMENT, "openteams.error.invalid-tag");
         }
         return mutate(intent(MutationType.TEAM_CREATE, request.actorId(), null, null,
                         Map.of("name", request.name(), "tag", request.tag() == null ? "" : request.tag())),
@@ -175,6 +240,22 @@ public final class TeamServiceImpl implements TeamService, AutoCloseable {
     ) {
         return mutate(intent(MutationType.INVITATION_ACCEPT, request.actorId(), request.teamId(), null),
                 () -> store.acceptInvitation(request.teamId(), request.actorId()));
+    }
+
+    @Override
+    public CompletionStage<OperationResult<TeamSnapshot>> declineInvitation(
+            TeamRequests.TargetAction request) {
+        return mutate(intent(MutationType.INVITATION_DECLINE, request.actorId(), request.teamId(),
+                        request.actorId()),
+                () -> store.declineInvitation(request.teamId(), request.actorId()));
+    }
+
+    @Override
+    public CompletionStage<OperationResult<TeamSnapshot>> revokeInvitation(
+            TeamRequests.TargetAction request) {
+        return mutate(intent(MutationType.INVITATION_REVOKE, request.actorId(), request.teamId(),
+                        request.targetId()),
+                () -> store.revokeInvitation(request.teamId(), request.actorId(), request.targetId()));
     }
 
     @Override
@@ -238,6 +319,22 @@ public final class TeamServiceImpl implements TeamService, AutoCloseable {
     }
 
     @Override
+    public CompletionStage<OperationResult<TeamSnapshot>> rejectJoinRequest(
+            TeamRequests.TargetAction request) {
+        return mutate(intent(MutationType.JOIN_REQUEST_REJECT, request.actorId(), request.teamId(),
+                        request.targetId()),
+                () -> store.rejectJoinRequest(request.teamId(), request.actorId(), request.targetId()));
+    }
+
+    @Override
+    public CompletionStage<OperationResult<TeamSnapshot>> cancelJoinRequest(
+            TeamRequests.TeamAction request) {
+        return mutate(intent(MutationType.JOIN_REQUEST_CANCEL, request.actorId(), request.teamId(),
+                        request.actorId()),
+                () -> store.cancelJoinRequest(request.teamId(), request.actorId()));
+    }
+
+    @Override
     public CompletionStage<OperationResult<TeamSnapshot>> ban(TeamRequests.Ban request) {
         return mutate(intent(MutationType.MEMBER_BAN, request.actorId(), request.teamId(),
                         request.targetId(), Map.of("reason",
@@ -281,12 +378,35 @@ public final class TeamServiceImpl implements TeamService, AutoCloseable {
                         request.encodedValue(), validation.permission()));
     }
 
+    @Override
+    public CompletionStage<OperationResult<TeamSnapshot>> setVisibility(
+            TeamRequests.SetVisibility request) {
+        return mutate(intent(MutationType.TEAM_VISIBILITY_CHANGE, request.actorId(),
+                        request.teamId(), null,
+                        Map.of("visibility", request.visibility().name())),
+                () -> store.setVisibility(request.teamId(), request.actorId(), request.visibility()));
+    }
+
+    private <T> CompletionStage<T> queryValue(SqlValue<T> query) {
+        return CompletableFuture.supplyAsync(() -> {
+            acquirePermit();
+            try {
+                return query.run();
+            } catch (SQLException exception) {
+                runtime.degrade();
+                throw new DatabaseOperationException(exception);
+            } finally {
+                inFlight.release();
+            }
+        }, executor);
+    }
+
     private CompletionStage<Optional<TeamSnapshot>> query(SqlQuery query) {
         return CompletableFuture.supplyAsync(() -> {
             acquirePermit();
             try {
-                var result = query.run().map(this::withExtensionPermissions);
-                result.ifPresent(cache::put);
+                var result = query.run();
+                result.ifPresent(cache::putFromQuery);
                 return result;
             } catch (SQLException exception) {
                 runtime.degrade();
@@ -326,8 +446,7 @@ public final class TeamServiceImpl implements TeamService, AutoCloseable {
                 var before = intent.optionalTeamId().flatMap(cache::team).orElse(null);
                 for (var attempt = 0; attempt < 3; attempt++) {
                     try {
-                        var snapshot = withExtensionPermissions(store.correlated(
-                                intent.correlationId(), mutation::run));
+                        var snapshot = store.correlated(intent.correlationId(), mutation::run);
                         if (snapshot.state() == TeamState.DISBANDED) {
                             cache.remove(snapshot.id());
                         } else {
@@ -392,39 +511,6 @@ public final class TeamServiceImpl implements TeamService, AutoCloseable {
                 && exception.getMessage().toLowerCase(java.util.Locale.ROOT).contains("unique constraint");
     }
 
-    private TeamSnapshot withExtensionPermissions(TeamSnapshot snapshot) {
-        var members = snapshot.members().stream()
-                .map(member -> {
-                    var defaults = registries.defaultPermissions(member.roleKey());
-                    if (defaults.isEmpty()) {
-                        return member;
-                    }
-                    var resolved = new HashSet<>(member.permissions());
-                    resolved.addAll(defaults);
-                    return new TeamMemberSnapshot(
-                            member.playerId(),
-                            member.roleKey(),
-                            resolved,
-                            member.joinedAt(),
-                            member.lastActiveAt());
-                })
-                .toList();
-        return new TeamSnapshot(
-                snapshot.id(),
-                snapshot.name(),
-                snapshot.normalizedName(),
-                snapshot.tag(),
-                snapshot.ownerId(),
-                snapshot.state(),
-                snapshot.visibility(),
-                snapshot.memberLimit(),
-                snapshot.version(),
-                snapshot.createdAt(),
-                snapshot.updatedAt(),
-                snapshot.settings(),
-                members);
-    }
-
     private void acquirePermit() {
         try {
             inFlight.acquire();
@@ -486,6 +572,11 @@ public final class TeamServiceImpl implements TeamService, AutoCloseable {
     @FunctionalInterface
     private interface SqlQuery {
         Optional<TeamSnapshot> run() throws SQLException;
+    }
+
+    @FunctionalInterface
+    private interface SqlValue<T> {
+        T run() throws SQLException;
     }
 
     @FunctionalInterface

@@ -15,6 +15,8 @@ class TeamNamesTest {
         assertThat(TeamNames.validName("Open Teams")).isTrue();
         assertThat(TeamNames.validName("<red>Injected")).isFalse();
         assertThat(TeamNames.validTag("OT26")).isTrue();
+        assertThat(TeamNames.validTag("A")).isTrue();
         assertThat(TeamNames.validTag("too-long-tag")).isFalse();
+        assertThat(TeamNames.validName(null)).isFalse();
     }
 }

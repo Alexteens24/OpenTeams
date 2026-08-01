@@ -11,6 +11,7 @@ import java.util.UUID;
 import me.alexisbinh.openteams.api.TeamErrorCode;
 import me.alexisbinh.openteams.api.TeamId;
 import me.alexisbinh.openteams.api.TeamState;
+import me.alexisbinh.openteams.api.TeamVisibility;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,6 +23,8 @@ class JdbcTeamStoreTest {
 
     private DatabaseManager database;
     private JdbcTeamStore store;
+    private final java.util.Set<String> runtimePermissions =
+            java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     @BeforeEach
     void setUp() throws Exception {
@@ -38,7 +41,7 @@ class JdbcTeamStoreTest {
         database.start();
         store = new JdbcTeamStore(
                 database.dataSource(), config.namespace(), Clock.systemUTC(), 20, 60_000,
-                database);
+                database, (role, permission) -> runtimePermissions.contains(role + ":" + permission));
     }
 
     @AfterEach
@@ -73,6 +76,10 @@ class JdbcTeamStoreTest {
         var disbanded = store.disband(created.id(), member);
         assertThat(disbanded.state()).isEqualTo(TeamState.DISBANDED);
         assertThat(disbanded.members()).isEmpty();
+
+        var recreated = store.create(member, "Open Teams", "OT");
+        assertThat(recreated.id()).isNotEqualTo(disbanded.id());
+        assertThat(recreated.ownerId()).isEqualTo(member);
     }
 
     @Test
@@ -98,29 +105,119 @@ class JdbcTeamStoreTest {
     }
 
     @Test
+    void coOwnerCanUseSeededRenameAndSettingsPermissions() throws Exception {
+        var owner = UUID.randomUUID();
+        var coOwner = UUID.randomUUID();
+        var team = store.create(owner, "Permission Team", "PERM");
+        store.invite(team.id(), owner, coOwner);
+        store.acceptInvitation(team.id(), coOwner);
+        store.changeRole(team.id(), owner, coOwner, "co_owner");
+
+        var renamed = store.rename(team.id(), coOwner, "Renamed Team");
+        var visible = store.setVisibility(renamed.id(), coOwner, TeamVisibility.PUBLIC);
+
+        assertThat(visible.name()).isEqualTo("Renamed Team");
+        assertThat(visible.visibility()).isEqualTo(TeamVisibility.PUBLIC);
+    }
+
+    @Test
+    void runtimeDefaultRoleCanAuthorizeAddonSetting() throws Exception {
+        var owner = UUID.randomUUID();
+        var moderator = UUID.randomUUID();
+        var team = store.create(owner, "Addon Team", "ADD");
+        store.invite(team.id(), owner, moderator);
+        store.acceptInvitation(team.id(), moderator);
+        store.changeRole(team.id(), owner, moderator, "moderator");
+        runtimePermissions.add("moderator:example.use");
+
+        var changed = store.setSetting(team.id(), moderator,
+                "example:enabled", "true", "example.use");
+
+        assertThat(changed.settings()).containsEntry("example:enabled", "true");
+    }
+
+    @Test
     void joinRequestAndBanAreAtomicAndMutuallyConsistent() throws Exception {
         var owner = UUID.randomUUID();
         var applicant = UUID.randomUUID();
         var team = store.create(owner, "Requests Team", "REQ");
+        team = store.setVisibility(team.id(), owner, TeamVisibility.PUBLIC);
+        var teamId = team.id();
 
-        store.requestJoin(team.id(), applicant);
-        var joined = store.acceptJoinRequest(team.id(), owner, applicant);
+        store.requestJoin(teamId, applicant);
+        var joined = store.acceptJoinRequest(teamId, owner, applicant);
         assertThat(joined.members())
                 .extracting(member -> member.playerId())
                 .contains(applicant);
 
-        var banned = store.ban(team.id(), owner, applicant, "test");
+        var banned = store.ban(teamId, owner, applicant, "test");
         assertThat(banned.members())
                 .extracting(member -> member.playerId())
                 .doesNotContain(applicant);
 
-        assertThatThrownBy(() -> store.requestJoin(team.id(), applicant))
+        assertThatThrownBy(() -> store.requestJoin(teamId, applicant))
                 .isInstanceOf(DomainFailure.class)
                 .extracting(error -> ((DomainFailure) error).code())
                 .isEqualTo(TeamErrorCode.FORBIDDEN);
 
-        store.unban(team.id(), owner, applicant);
-        store.requestJoin(team.id(), applicant);
+        store.unban(teamId, owner, applicant);
+        store.requestJoin(teamId, applicant);
+    }
+
+    @Test
+    void discoveryAndPlayerDirectoryExposeOnlyPublicActiveTeams() throws Exception {
+        var publicOwner = UUID.randomUUID();
+        var privateOwner = UUID.randomUUID();
+        store.rememberPlayer(publicOwner, "PublicOwner");
+        var publicTeam = store.create(publicOwner, "Public Guild", "PUB");
+        store.setVisibility(publicTeam.id(), publicOwner, TeamVisibility.PUBLIC);
+        store.create(privateOwner, "Hidden Guild", "HID");
+
+        var page = store.searchPublicTeams("pub", 0, 10);
+        assertThat(page.items()).singleElement()
+                .extracting(item -> item.id()).isEqualTo(publicTeam.id());
+        assertThat(store.resolvePlayers(java.util.List.of(publicOwner)).get(publicOwner)
+                .lastKnownName()).isEqualTo("PublicOwner");
+    }
+
+    @Test
+    void pendingPlayerFlowsCanBeListedAndRemoved() throws Exception {
+        var owner = UUID.randomUUID();
+        var invited = UUID.randomUUID();
+        var applicant = UUID.randomUUID();
+        store.rememberPlayer(owner, "OwnerName");
+        store.rememberPlayer(invited, "InvitedName");
+        store.rememberPlayer(applicant, "ApplicantName");
+        var team = store.create(owner, "Flow Team", "FLOW");
+        team = store.setVisibility(team.id(), owner, TeamVisibility.PUBLIC);
+        var teamId = team.id();
+
+        store.invite(teamId, owner, invited);
+        assertThat(store.invitations(invited)).singleElement()
+                .satisfies(item -> assertThat(item.inviter().lastKnownName()).isEqualTo("OwnerName"));
+        assertThat(store.outgoingInvitations(teamId)).singleElement()
+                .satisfies(item -> assertThat(item.player().lastKnownName()).isEqualTo("InvitedName"));
+        store.revokeInvitation(teamId, owner, invited);
+        assertThat(store.invitations(invited)).isEmpty();
+
+        store.requestJoin(teamId, applicant);
+        assertThat(store.joinRequests(teamId)).singleElement()
+                .satisfies(item -> assertThat(item.player().lastKnownName()).isEqualTo("ApplicantName"));
+        assertThat(store.joinRequestsByPlayer(applicant)).singleElement()
+                .satisfies(item -> assertThat(item.team().id()).isEqualTo(teamId));
+        store.rejectJoinRequest(teamId, owner, applicant);
+        assertThat(store.joinRequests(teamId)).isEmpty();
+    }
+
+    @Test
+    void privateTeamRejectsJoinRequests() throws Exception {
+        var owner = UUID.randomUUID();
+        var team = store.create(owner, "Private Team", "PRI");
+
+        assertThatThrownBy(() -> store.requestJoin(team.id(), UUID.randomUUID()))
+                .isInstanceOf(DomainFailure.class)
+                .extracting(error -> ((DomainFailure) error).code())
+                .isEqualTo(TeamErrorCode.FORBIDDEN);
     }
 
     @Test
@@ -222,6 +319,32 @@ class JdbcTeamStoreTest {
     }
 
     @Test
+    void migrationUsesPluginClassLoaderWhenThreadContextCannotSeeResources()
+            throws Exception {
+        var config = new DatabaseConfig(
+                DatabaseConfig.Type.SQLITE,
+                "classloader-test",
+                "jdbc:sqlite:" + temporaryDirectory.resolve("classloader.db"),
+                "", "", 1, 3000);
+        var thread = Thread.currentThread();
+        var previous = thread.getContextClassLoader();
+        thread.setContextClassLoader(new ClassLoader(null) { });
+        try (var isolated = new DatabaseManager(config, Clock.systemUTC())) {
+            isolated.start();
+            try (var connection = isolated.dataSource().getConnection();
+                 var statement = connection.prepareStatement(
+                         "SELECT next_token FROM core_lease_fences WHERE namespace = ?")) {
+                statement.setString(1, config.namespace());
+                try (var result = statement.executeQuery()) {
+                    assertThat(result.next()).isTrue();
+                }
+            }
+        } finally {
+            thread.setContextClassLoader(previous);
+        }
+    }
+
+    @Test
     void staleInstanceCannotCommitAfterFencedLeaseTakeover() throws Exception {
         var clock = new MutableClock(Instant.parse("2026-01-01T00:00:00Z"));
         var config = new DatabaseConfig(
@@ -232,7 +355,8 @@ class JdbcTeamStoreTest {
         try (var first = new DatabaseManager(config, clock)) {
             first.start();
             var firstStore = new JdbcTeamStore(
-                    first.dataSource(), config.namespace(), clock, 20, 60_000, first);
+                    first.dataSource(), config.namespace(), clock, 20, 60_000, first,
+                    (role, permission) -> false);
             var owner = UUID.randomUUID();
             var team = firstStore.create(owner, "Fenced Team", "FENCE");
             var firstToken = first.fenceToken();

@@ -1,0 +1,207 @@
+---
+import DocsLayout from "../layouts/DocsLayout.astro";
+
+const repository = "https://github.com/Alexteens24/OpenTeams";
+
+const navigation = [
+  { href: "#overview", label: "Tổng quan" },
+  { href: "#installation", label: "Cài đặt" },
+  { href: "#commands", label: "Commands" },
+  { href: "#configuration", label: "Cấu hình" },
+  { href: "#operations", label: "Vận hành" },
+  { href: "#addons", label: "Addon API" },
+];
+
+const commands = [
+  ["/team", "Mở command center bằng Dialog; tự fallback về chat khi cần."],
+  ["/team create <name>", "Tạo team mới."],
+  ["/team explore [query]", "Tìm các team public và gửi yêu cầu tham gia."],
+  ["/team invitations", "Xem, chấp nhận hoặc từ chối lời mời."],
+  ["/team invite <player>", "Mời người chơi, kể cả khi họ đang offline."],
+  ["/team chat [message]", "Bật/tắt team chat hoặc gửi một tin nhắn trực tiếp."],
+  ["/team info", "Xem thông tin team hiện tại."],
+  ["/teamadmin doctor", "Kiểm tra database invariants và trạng thái runtime."],
+  ["/teamadmin spy", "Bật/tắt staff team-chat spy."],
+];
+
+const config = `database:
+  type: sqlite          # sqlite | mysql | mariadb
+  namespace: default
+  sqlite-file: openteams.db
+  pool-size: 8
+
+team:
+  default-member-limit: 20
+  invitation-expiry-seconds: 604800
+
+ui:
+  mode: auto            # auto | dialog | chat
+  default-locale: vi_VN
+  follow-player-locale: false
+
+friendly-fire:
+  mode: deny
+
+audit:
+  retention-days: 90`;
+
+const addonCode = `OpenTeams api = Bukkit.getServicesManager()
+    .load(OpenTeams.class);
+
+Registration action = api.ui().register(plugin, new UiAction(
+    "home",
+    UiArea.DASHBOARD,
+    "example.action.home",
+    "example.action.home.description",
+    "example.use",
+    context -> true,
+    context -> CompletableFuture.completedFuture(UiResult.REFRESH)
+));`;
+---
+
+<DocsLayout
+  title="OpenTeams — Documentation"
+  description="Tài liệu cài đặt, cấu hình, commands và addon API của OpenTeams cho Paper và Folia."
+>
+  <header class="topbar">
+    <a class="brand" href="#overview" aria-label="OpenTeams documentation home">
+      <span class="brand-mark">OT</span>
+      <span>OpenTeams</span>
+      <span class="version">indev</span>
+    </a>
+    <nav class="top-actions" aria-label="Liên kết chính">
+      <a href="#installation">Bắt đầu</a>
+      <a class="github-link" href={repository} target="_blank" rel="noreferrer">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .7a11.5 11.5 0 0 0-3.64 22.4c.58.1.79-.25.79-.56v-2.02c-3.22.7-3.9-1.36-3.9-1.36-.52-1.34-1.28-1.7-1.28-1.7-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.18 1.77 1.18 1.03 1.76 2.7 1.25 3.36.96.1-.74.4-1.25.73-1.54-2.57-.3-5.27-1.29-5.27-5.7 0-1.26.45-2.3 1.18-3.1-.12-.3-.51-1.47.12-3.06 0 0 .97-.31 3.16 1.18A10.9 10.9 0 0 1 12 6.3c.98 0 1.96.13 2.88.39 2.2-1.49 3.16-1.18 3.16-1.18.63 1.59.24 2.77.12 3.06.74.8 1.18 1.84 1.18 3.1 0 4.43-2.7 5.4-5.28 5.69.42.36.79 1.07.79 2.16v3.02c0 .31.2.67.8.56A11.5 11.5 0 0 0 12 .7Z"/></svg>
+        GitHub
+      </a>
+    </nav>
+  </header>
+
+  <div class="docs-shell">
+    <aside class="sidebar">
+      <div class="sidebar-label">Documentation</div>
+      <nav aria-label="Mục lục">
+        {navigation.map((item, index) => (
+          <a href={item.href} class={index === 0 ? "active" : ""}>
+            <span>{String(index + 1).padStart(2, "0")}</span>{item.label}
+          </a>
+        ))}
+      </nav>
+      <div class="sidebar-status">
+        <span class="status-dot"></span>
+        <div><strong>1.0.0-SNAPSHOT</strong><small>Java 21 · Paper 1.21.11+</small></div>
+      </div>
+    </aside>
+
+    <main>
+      <section id="overview" class="hero anchor-section">
+        <div class="eyebrow"><span></span> Team platform cho Paper & Folia</div>
+        <h1>Quản lý team chắc chắn.<br /><em>Trải nghiệm thật tự nhiên.</em></h1>
+        <p class="hero-copy">OpenTeams đặt tính đúng đắn của dữ liệu làm nền, rồi xây trải nghiệm Dialog-first gọn gàng cho người chơi và API rõ ràng cho addon.</p>
+        <div class="hero-actions">
+          <a class="button primary" href="#installation">Cài đặt ngay <span>→</span></a>
+          <a class="button secondary" href={repository} target="_blank" rel="noreferrer">Xem source</a>
+        </div>
+        <div class="terminal-card" aria-label="OpenTeams server log example">
+          <div class="terminal-bar"><span></span><span></span><span></span><b>paper@server ~</b></div>
+          <pre><code><i>$</i> java -jar paper.jar
+<span>[OpenTeams]</span> Database lease acquired
+<span>[OpenTeams]</span> Runtime is WRITABLE
+<strong>✓ OpenTeams enabled safely</strong></code></pre>
+        </div>
+      </section>
+
+      <section class="feature-grid" aria-label="Điểm nổi bật">
+        <article><span class="feature-number">01</span><h2>Dialog-first UX</h2><p>Command center, inbox lời mời và roster trực quan. Chat fallback vẫn hoạt động khi Dialog không khả dụng.</p></article>
+        <article><span class="feature-number">02</span><h2>Correctness-first</h2><p>Transactional mutations, fencing token, optimistic concurrency và immutable cache bảo vệ trạng thái team.</p></article>
+        <article><span class="feature-number">03</span><h2>Addon-ready</h2><p>Đăng ký commands, settings, permissions, placeholders, UI actions, translations và mutation policies.</p></article>
+      </section>
+
+      <section id="installation" class="doc-section anchor-section">
+        <div class="section-heading"><span>01</span><div><p>Getting started</p><h2>Cài đặt</h2></div></div>
+        <p>OpenTeams hiện ở giai đoạn indev. Plugin build bytecode Java 21 và hỗ trợ Paper/Folia 1.21.11 trở lên.</p>
+        <ol class="steps">
+          <li><span>1</span><div><strong>Build plugin</strong><p>Clone repository và tạo JAR bằng Gradle wrapper.</p><pre><code>./gradlew clean build</code></pre></div></li>
+          <li><span>2</span><div><strong>Đưa JAR vào server</strong><p>Copy artifact từ thư mục build vào <code>plugins/</code>.</p><pre><code>cp openteams-core/build/libs/openteams-core-*.jar /path/to/server/plugins/</code></pre></div></li>
+          <li><span>3</span><div><strong>Khởi động Paper</strong><p>OpenTeams tự tạo config và schema development baseline. Không dùng PlugMan để reload plugin có database.</p><pre><code>java -jar paper.jar --nogui</code></pre></div></li>
+        </ol>
+        <aside class="callout warning"><b>Indev schema</b><p>Chưa có upgrade migrations. Khi schema alpha thay đổi, hãy xóa database thử nghiệm cũ và để OpenTeams tạo lại từ đầu.</p></aside>
+      </section>
+
+      <section id="commands" class="doc-section anchor-section">
+        <div class="section-heading"><span>02</span><div><p>Player & admin</p><h2>Commands</h2></div></div>
+        <p>Chạy <code>/team</code> để mở UI chính. Mọi thao tác quan trọng vẫn có command tương ứng để dùng từ chat.</p>
+        <div class="command-table">
+          {commands.map(([command, description]) => <div><code>{command}</code><p>{description}</p></div>)}
+        </div>
+        <aside class="callout"><b>Permissions</b><p><code>openteams.command.team</code> dành cho người chơi; <code>openteams.admin</code> và <code>openteams.admin.spy</code> mặc định chỉ dành cho operator.</p></aside>
+      </section>
+
+      <section id="configuration" class="doc-section anchor-section">
+        <div class="section-heading"><span>03</span><div><p>config.yml</p><h2>Cấu hình</h2></div></div>
+        <p>Mặc định dùng SQLite để chạy ngay. Với network nhiều server, chuyển sang MySQL hoặc MariaDB và dùng một <code>namespace</code> riêng cho mỗi logical cluster.</p>
+        <div class="code-card"><div><span>config.yml</span><button data-copy="config-code" aria-label="Sao chép cấu hình">Copy</button></div><pre id="config-code"><code>{config}</code></pre></div>
+        <div class="mini-grid">
+          <article><b>UI mode</b><p><code>auto</code> ưu tiên Paper Dialog và tự fallback về chat. Có thể ép <code>dialog</code> hoặc <code>chat</code>.</p></article>
+          <article><b>Locale</b><p>Mặc định là <code>vi_VN</code>. Bật <code>follow-player-locale</code> để theo locale Minecraft client.</p></article>
+          <article><b>Friendly fire</b><p><code>deny</code> chặn sát thương giữa thành viên cùng team trên hot path cache-only.</p></article>
+          <article><b>Audit</b><p>Lịch sử mutation được lưu cùng transaction và dọn theo <code>retention-days</code>.</p></article>
+        </div>
+      </section>
+
+      <section id="operations" class="doc-section anchor-section">
+        <div class="section-heading"><span>04</span><div><p>Safe runtime</p><h2>Vận hành</h2></div></div>
+        <div class="runtime-flow" aria-label="OpenTeams runtime states">
+          <div><span>01</span><b>STARTING</b><small>Config · schema · lease</small></div><i>→</i>
+          <div class="current"><span>02</span><b>WRITABLE</b><small>Reads & mutations</small></div><i>↔</i>
+          <div><span>03</span><b>READ ONLY</b><small>Cache vẫn phục vụ</small></div><i>→</i>
+          <div><span>04</span><b>RECOVERING</b><small>Rebuild cache</small></div>
+        </div>
+        <p>Database là nguồn sự thật. Nếu lease hoặc database gặp sự cố, OpenTeams hạ về read-only thay vì tiếp tục ghi không an toàn. Khi kết nối trở lại, plugin rebuild cache trước khi mở ghi.</p>
+        <div class="checklist">
+          <div><span>✓</span><p><b>Kiểm tra sau khi boot</b><br /><code>/teamadmin doctor</code> phải báo runtime <code>WRITABLE</code> và không có invariant lỗi.</p></div>
+          <div><span>✓</span><p><b>Deploy đúng cách</b><br />Stop server, thay JAR rồi start lại. Hot reload bằng PlugMan không phải luồng được hỗ trợ.</p></div>
+          <div><span>✓</span><p><b>Backup trước thay đổi</b><br />Sao lưu database trước khi đổi engine hoặc thử schema mới.</p></div>
+        </div>
+      </section>
+
+      <section id="addons" class="doc-section anchor-section">
+        <div class="section-heading"><span>05</span><div><p>Public extension API</p><h2>Phát triển addon</h2></div></div>
+        <p>Compile against <code>openteams-api</code>, khai báo <code>depend: [OpenTeams]</code>, rồi lấy service từ Bukkit. Mỗi extension registration thuộc về plugin đăng ký và được Core tự dọn khi addon disable.</p>
+        <div class="code-card"><div><span>ExampleAddonPlugin.java</span><button data-copy="addon-code" aria-label="Sao chép Java example">Copy</button></div><pre id="addon-code"><code>{addonCode}</code></pre></div>
+        <div class="api-list">
+          <span>Commands</span><span>Settings</span><span>Permissions</span><span>Placeholders</span><span>UI actions</span><span>Translations</span><span>Mutation policies</span>
+        </div>
+        <aside class="callout"><b>Threading contract</b><p>Authoritative queries và mutations là async. Hãy chuyển về Paper/Folia entity scheduler trước khi thay đổi player, entity hoặc inventory.</p></aside>
+      </section>
+
+      <footer>
+        <div class="brand"><span class="brand-mark">OT</span><span>OpenTeams</span></div>
+        <p>Correctness-first team platform. Apache-2.0.</p>
+        <a href={repository} target="_blank" rel="noreferrer">GitHub ↗</a>
+      </footer>
+    </main>
+  </div>
+
+  <script>
+    const sections = [...document.querySelectorAll<HTMLElement>(".anchor-section")];
+    const links = [...document.querySelectorAll<HTMLAnchorElement>(".sidebar nav a")];
+    const observer = new IntersectionObserver((entries) => {
+      const visible = entries.filter((entry) => entry.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+      if (!visible) return;
+      links.forEach((link) => link.classList.toggle("active", link.hash === `#${visible.target.id}`));
+    }, { rootMargin: "-20% 0px -65%", threshold: [0, 0.25, 0.75] });
+    sections.forEach((section) => observer.observe(section));
+
+    document.querySelectorAll<HTMLButtonElement>("[data-copy]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const target = document.getElementById(button.dataset.copy ?? "");
+        if (!target) return;
+        await navigator.clipboard.writeText(target.textContent ?? "");
+        button.textContent = "Copied";
+        window.setTimeout(() => button.textContent = "Copy", 1400);
+      });
+    });
+  </script>
+</DocsLayout>

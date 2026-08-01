@@ -69,4 +69,12 @@ public final class TeamRequests {
             Objects.requireNonNull(encodedValue, "encodedValue");
         }
     }
+
+    public record SetVisibility(UUID actorId, TeamId teamId, TeamVisibility visibility) {
+        public SetVisibility {
+            Objects.requireNonNull(actorId, "actorId");
+            Objects.requireNonNull(teamId, "teamId");
+            Objects.requireNonNull(visibility, "visibility");
+        }
+    }
 }

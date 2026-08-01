@@ -49,14 +49,30 @@ public final class DatabaseManager implements AutoCloseable {
             }
         }
 
-        Flyway.configure()
-                .dataSource(dataSource)
-                .locations("classpath:db/migration/common")
-                .validateMigrationNaming(true)
-                .load()
-                .migrate();
+        migrateSchema();
         acquireLease();
         seedRoles();
+    }
+
+    /**
+     * Paper does not guarantee that the server thread context class loader is
+     * the plugin class loader. Flyway's classpath scanner uses that context, so
+     * bind it explicitly while resolving the migration bundled in our jar.
+     */
+    private void migrateSchema() {
+        var thread = Thread.currentThread();
+        var previous = thread.getContextClassLoader();
+        thread.setContextClassLoader(DatabaseManager.class.getClassLoader());
+        try {
+            Flyway.configure()
+                    .dataSource(dataSource)
+                    .locations("classpath:db/migration/common")
+                    .validateMigrationNaming(true)
+                    .load()
+                    .migrate();
+        } finally {
+            thread.setContextClassLoader(previous);
+        }
     }
 
     private void seedRoles() throws SQLException {

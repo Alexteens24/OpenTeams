@@ -15,10 +15,13 @@ public final class TeamChatListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onChat(AsyncChatEvent event) {
-        if (!chat.teamChatEnabled(event.getPlayer().getUniqueId())) {
-            return;
-        }
+        var mode = chat.chatMode(event.getPlayer().getUniqueId());
+        if (mode == TeamChatService.ChatMode.GLOBAL) return;
         event.setCancelled(true);
-        chat.broadcast(event.getPlayer(), event.message());
+        if (mode == TeamChatService.ChatMode.LOADING) {
+            chat.notifyLoading(event.getPlayer());
+        } else {
+            chat.broadcast(event.getPlayer(), event.message());
+        }
     }
 }

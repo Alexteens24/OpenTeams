@@ -3,6 +3,8 @@ package me.alexisbinh.openteams.example;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import me.alexisbinh.openteams.api.OpenTeams;
 import me.alexisbinh.openteams.api.extension.CommandRegistry;
@@ -68,21 +70,28 @@ public final class ExampleAddonPlugin extends JavaPlugin {
         registrations.add(api.userInterface().register(this,
                 new TeamUiRegistry.UiAction(
                         "dashboard",
-                        "modules",
+                        TeamUiRegistry.Area.DASHBOARD,
                         100,
                         "example.ui.label",
+                        "example.ui.description",
                         "example.use",
-                        (viewer, team) -> true,
-                        (viewer, team) -> {
-                            var player = Bukkit.getPlayer(viewer);
+                        context -> true,
+                        context -> {
+                            var player = Bukkit.getPlayer(context.viewerId());
                             if (player != null) {
                                 player.getScheduler().run(this, task -> player.sendMessage(
-                                        Component.text("Example module for " + team.name(),
+                                        Component.text("Example module for " + context.teamId(),
                                                 NamedTextColor.AQUA)), null);
                             }
-                            return CompletableFuture.completedFuture(null);
+                            return CompletableFuture.completedFuture(
+                                    TeamUiRegistry.ActionOutcome.CLOSE);
                         }
                 )));
+
+        registrations.add(api.translations().register(this, Locale.US, Map.of(
+                "example.ui.label", "Example module",
+                "example.ui.description", "Run the example addon action"
+        )));
     }
 
     @Override

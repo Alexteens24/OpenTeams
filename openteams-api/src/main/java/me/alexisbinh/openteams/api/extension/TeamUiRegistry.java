@@ -3,7 +3,7 @@ package me.alexisbinh.openteams.api.extension;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletionStage;
-import me.alexisbinh.openteams.api.TeamSnapshot;
+import me.alexisbinh.openteams.api.TeamId;
 import org.bukkit.plugin.Plugin;
 
 public interface TeamUiRegistry {
@@ -11,30 +11,46 @@ public interface TeamUiRegistry {
 
     record UiAction(
             String key,
-            String area,
+            Area area,
             int priority,
-            String labelTranslationKey,
+            String labelKey,
+            String descriptionKey,
             String permission,
-            Visibility visibility,
+            Availability availability,
             Handler handler
     ) {
         public UiAction {
             Objects.requireNonNull(key, "key");
             Objects.requireNonNull(area, "area");
-            Objects.requireNonNull(labelTranslationKey, "labelTranslationKey");
+            Objects.requireNonNull(labelKey, "labelKey");
+            Objects.requireNonNull(descriptionKey, "descriptionKey");
             Objects.requireNonNull(permission, "permission");
-            Objects.requireNonNull(visibility, "visibility");
+            Objects.requireNonNull(availability, "availability");
             Objects.requireNonNull(handler, "handler");
         }
     }
 
+    public enum Area {
+        DASHBOARD,
+        MEMBERS,
+        SETTINGS
+    }
+
+    public record UiContext(UUID viewerId, TeamId teamId, long teamVersion) {
+    }
+
+    public enum ActionOutcome {
+        REFRESH,
+        CLOSE
+    }
+
     @FunctionalInterface
-    interface Visibility {
-        boolean visible(UUID viewerId, TeamSnapshot snapshot);
+    interface Availability {
+        boolean available(UiContext context);
     }
 
     @FunctionalInterface
     interface Handler {
-        CompletionStage<Void> execute(UUID viewerId, TeamSnapshot snapshot);
+        CompletionStage<ActionOutcome> execute(UiContext context);
     }
 }

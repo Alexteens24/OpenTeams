@@ -5,7 +5,7 @@ import java.util.UUID;
 import javax.sql.DataSource;
 import me.alexisbinh.openteams.core.database.DatabaseManager;
 
-public final class JdbcChatPreferenceStore {
+public final class JdbcChatPreferenceStore implements ChatPreferenceStore {
     private final DataSource dataSource;
     private final String namespace;
     private final DatabaseManager database;
@@ -20,6 +20,7 @@ public final class JdbcChatPreferenceStore {
         this.database = database;
     }
 
+    @Override
     public ChatPreferences load(UUID playerId) throws SQLException {
         try (var connection = dataSource.getConnection();
              var statement = connection.prepareStatement("""
@@ -36,6 +37,7 @@ public final class JdbcChatPreferenceStore {
         }
     }
 
+    @Override
     public void save(UUID playerId, ChatPreferences preferences) throws SQLException {
         try (var connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
