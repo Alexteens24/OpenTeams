@@ -99,7 +99,7 @@ public final class OpenTeamsPlugin extends JavaPlugin {
                     event -> Bukkit.getPluginManager().callEvent(event),
                     database::leaseHeld
             );
-            var api = new OpenTeamsImpl(teamService, registries, runtime);
+            var api = new OpenTeamsImpl(teamService, teamService, registries, runtime);
             var localizedMessages = new LocalizedMessages(Locale.forLanguageTag(
                     getConfig().getString("ui.default-locale", "vi_VN").replace('_', '-')),
                     registries::translation,
@@ -112,12 +112,14 @@ public final class OpenTeamsPlugin extends JavaPlugin {
                     getConfig().getString("chat.format",
                             "<aqua>[<tag>]</aqua> <white><player>:</white> <gray><message></gray>"),
                     localizedMessages);
-            var chatInterface = new ChatTeamUserInterface(teamService, localizedMessages);
+            var chatInterface = new ChatTeamUserInterface(
+                    this, teamService, localizedMessages);
             TeamUserInterface userInterface = switch (
                     getConfig().getString("ui.mode", "auto").toLowerCase(Locale.ROOT)) {
                 case "chat" -> chatInterface;
                 case "auto", "dialog" -> new DialogTeamUserInterface(
                         this,
+                        teamService,
                         teamService,
                         chatInterface,
                         localizedMessages,
@@ -129,6 +131,7 @@ public final class OpenTeamsPlugin extends JavaPlugin {
             };
             var commands = new TeamCommands(
                     this,
+                    teamService,
                     teamService,
                     userInterface,
                     registries,

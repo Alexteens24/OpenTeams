@@ -13,6 +13,8 @@ public interface OpenTeams {
 
     TeamService teams();
 
+    PlayerDirectory players();
+
     CommandRegistry commands();
 
     PlaceholderRegistry placeholders();

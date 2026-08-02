@@ -6,6 +6,7 @@ import io.papermc.paper.command.brigadier.CommandSourceStack;
 import io.papermc.paper.command.brigadier.Commands;
 import java.util.UUID;
 import me.alexisbinh.openteams.api.OperationResult;
+import me.alexisbinh.openteams.api.PlayerDirectory;
 import me.alexisbinh.openteams.api.TeamId;
 import me.alexisbinh.openteams.api.TeamRequests;
 import me.alexisbinh.openteams.api.TeamService;
@@ -26,6 +27,7 @@ import org.bukkit.plugin.Plugin;
 public final class TeamCommands {
     private final Plugin plugin;
     private final TeamService teams;
+    private final PlayerDirectory players;
     private final TeamUserInterface userInterface;
     private final ExtensionRegistries extensions;
     private final DatabaseManager database;
@@ -36,6 +38,7 @@ public final class TeamCommands {
     public TeamCommands(
             Plugin plugin,
             TeamService teams,
+            PlayerDirectory players,
             TeamUserInterface userInterface,
             ExtensionRegistries extensions,
             DatabaseManager database,
@@ -45,6 +48,7 @@ public final class TeamCommands {
     ) {
         this.plugin = plugin;
         this.teams = teams;
+        this.players = players;
         this.userInterface = userInterface;
         this.extensions = extensions;
         this.database = database;
@@ -64,6 +68,16 @@ public final class TeamCommands {
                                         StringArgumentType.getString(context, "name")))))
                 .then(Commands.literal("info")
                         .executes(context -> info(context.getSource())))
+                .then(Commands.literal("members")
+                        .executes(context -> listMembers(context.getSource())))
+                .then(Commands.literal("requests")
+                        .executes(context -> listRequests(context.getSource())))
+                .then(Commands.literal("sent")
+                        .executes(context -> listSentInvitations(context.getSource())))
+                .then(Commands.literal("bans")
+                        .executes(context -> listBans(context.getSource())))
+                .then(Commands.literal("settings")
+                        .executes(context -> listSettings(context.getSource())))
                 .then(Commands.literal("explore")
                         .executes(context -> explore(context.getSource(), ""))
                         .then(Commands.argument("query", StringArgumentType.greedyString())
@@ -71,9 +85,11 @@ public final class TeamCommands {
                                         StringArgumentType.getString(context, "query")))))
                 .then(Commands.literal("invitations")
                         .executes(context -> invitations(context.getSource())))
+                .then(Commands.literal("myrequests")
+                        .executes(context -> listMyRequests(context.getSource())))
                 .then(Commands.literal("invite")
                         .then(Commands.argument("player", StringArgumentType.word())
-                                .suggests((context, builder) -> suggestOnline(builder))
+                                .suggests((context, builder) -> suggestDirectory(builder))
                                 .executes(context -> invite(
                                         context.getSource(),
                                         StringArgumentType.getString(context, "player")))))
@@ -100,30 +116,47 @@ public final class TeamCommands {
                                         StringArgumentType.getString(context, "team-id")))))
                 .then(Commands.literal("approve")
                         .then(Commands.argument("player", StringArgumentType.word())
-                                .suggests((context, builder) -> suggestOnline(builder))
+                                .suggests((context, builder) -> suggestRequests(context.getSource(), builder))
                                 .executes(context -> targetAction(
                                         context.getSource(),
                                         StringArgumentType.getString(context, "player"),
                                         TargetOperation.APPROVE))))
+                .then(Commands.literal("reject")
+                        .then(Commands.argument("player", StringArgumentType.word())
+                                .suggests((context, builder) -> suggestRequests(context.getSource(), builder))
+                                .executes(context -> targetAction(context.getSource(),
+                                        StringArgumentType.getString(context, "player"),
+                                        TargetOperation.REJECT))))
+                .then(Commands.literal("revoke")
+                        .then(Commands.argument("player", StringArgumentType.word())
+                                .suggests((context, builder) -> suggestOutgoing(context.getSource(), builder))
+                                .executes(context -> targetAction(context.getSource(),
+                                        StringArgumentType.getString(context, "player"),
+                                        TargetOperation.REVOKE))))
+                .then(Commands.literal("cancel")
+                        .then(Commands.argument("team-id", StringArgumentType.word())
+                                .suggests((context, builder) -> suggestMyRequests(context.getSource(), builder))
+                                .executes(context -> cancelRequest(context.getSource(),
+                                        StringArgumentType.getString(context, "team-id")))))
                 .then(Commands.literal("leave")
                         .executes(context -> leave(context.getSource())))
                 .then(Commands.literal("kick")
                         .then(Commands.argument("player", StringArgumentType.word())
-                                .suggests((context, builder) -> suggestOnline(builder))
+                                .suggests((context, builder) -> suggestMembers(context.getSource(), builder))
                                 .executes(context -> targetAction(
                                         context.getSource(),
                                         StringArgumentType.getString(context, "player"),
                                         TargetOperation.KICK))))
                 .then(Commands.literal("transfer")
                         .then(Commands.argument("player", StringArgumentType.word())
-                                .suggests((context, builder) -> suggestOnline(builder))
+                                .suggests((context, builder) -> suggestMembers(context.getSource(), builder))
                                 .executes(context -> targetAction(
                                         context.getSource(),
                                         StringArgumentType.getString(context, "player"),
                                         TargetOperation.TRANSFER))))
                 .then(Commands.literal("ban")
                         .then(Commands.argument("player", StringArgumentType.word())
-                                .suggests((context, builder) -> suggestOnline(builder))
+                                .suggests((context, builder) -> suggestDirectory(builder))
                                 .executes(context -> ban(
                                         context.getSource(),
                                         StringArgumentType.getString(context, "player"),
@@ -135,18 +168,17 @@ public final class TeamCommands {
                                                 StringArgumentType.getString(context, "reason"))))))
                 .then(Commands.literal("unban")
                         .then(Commands.argument("player", StringArgumentType.word())
-                                .suggests((context, builder) -> suggestOnline(builder))
+                                .suggests((context, builder) -> suggestBans(context.getSource(), builder))
                                 .executes(context -> targetAction(
                                         context.getSource(),
                                         StringArgumentType.getString(context, "player"),
                                         TargetOperation.UNBAN))))
                 .then(Commands.literal("role")
                         .then(Commands.argument("player", StringArgumentType.word())
-                                .suggests((context, builder) -> suggestOnline(builder))
+                                .suggests((context, builder) -> suggestMembers(context.getSource(), builder))
                                 .then(Commands.argument("role", StringArgumentType.word())
                                         .suggests((context, builder) -> teams.roles().thenApply(roles -> {
-                                            roles.forEach(role -> builder.suggest(role.key()));
-                                            return builder.build();
+                                            return suggestAssignableRoles(context.getSource(), builder, roles);
                                         }).toCompletableFuture())
                                         .executes(context -> changeRole(
                                                 context.getSource(),
@@ -167,7 +199,10 @@ public final class TeamCommands {
                                     return builder.buildFuture();
                                 })
                                 .executes(context -> visibility(context.getSource(),
-                                        StringArgumentType.getString(context, "value")))))
+                                        StringArgumentType.getString(context, "value"), false))
+                                .then(Commands.literal("confirm")
+                                        .executes(context -> visibility(context.getSource(),
+                                                StringArgumentType.getString(context, "value"), true)))))
                 .then(Commands.literal("rename")
                         .then(Commands.argument("name", StringArgumentType.greedyString())
                                 .executes(context -> rename(
@@ -289,7 +324,8 @@ public final class TeamCommands {
         if (player == null) {
             return 0;
         }
-        respond(player, teams.create(new TeamRequests.Create(player.getUniqueId(), name, null)));
+        respond(player, "success.created",
+                teams.create(new TeamRequests.Create(player.getUniqueId(), name, null)));
         return Command.SINGLE_SUCCESS;
     }
 
@@ -298,14 +334,140 @@ public final class TeamCommands {
         if (player == null) {
             return 0;
         }
-        teams.findByPlayer(player.getUniqueId()).thenAccept(result ->
+        teams.loadMembership(player.getUniqueId()).thenAccept(result ->
                 dispatch(player, () -> {
-                    if (result.isEmpty()) {
+                    if (result.status() != me.alexisbinh.openteams.api.MembershipLookup.Status.PRESENT) {
                         player.sendMessage(messages.component(player, "error.not-in-team"));
                     } else {
-                        sendInfo(player, result.get());
+                        sendInfo(player, result.optionalTeam().orElseThrow());
                     }
                 }));
+        return Command.SINGLE_SUCCESS;
+    }
+
+    private int listMembers(CommandSourceStack source) {
+        var actor = player(source);
+        if (actor == null) return 0;
+        var team = team(actor);
+        if (team == null) return 0;
+        memberCandidates(team).whenComplete((items, failure) -> dispatch(actor, () -> {
+            if (failure != null) {
+                actor.sendMessage(messages.component(actor, "error.database_unavailable"));
+                return;
+            }
+            actor.sendMessage(messages.component(actor, "members.title"));
+            var byId = team.members().stream().collect(java.util.stream.Collectors.toMap(
+                    me.alexisbinh.openteams.api.TeamMemberSnapshot::playerId,
+                    java.util.function.Function.identity()));
+            items.forEach(item -> actor.sendMessage(Component.text(item.lastKnownName()
+                    + " · " + byId.get(item.playerId()).roleKey(), NamedTextColor.WHITE)));
+        }));
+        return Command.SINGLE_SUCCESS;
+    }
+
+    private int listRequests(CommandSourceStack source) {
+        var actor = player(source);
+        if (actor == null) return 0;
+        var team = team(actor);
+        if (team == null || !teams.hasPermissionCached(actor.getUniqueId(),
+                "team.join-request.accept")) return forbidden(actor);
+        teams.joinRequests(team.id()).whenComplete((items, failure) -> dispatch(actor, () -> {
+            if (failure != null) actor.sendMessage(messages.component(actor, "error.database_unavailable"));
+            else if (items.isEmpty()) actor.sendMessage(messages.component(actor, "requests.empty"));
+            else items.forEach(item -> actor.sendMessage(Component.text(item.player().lastKnownName())
+                    .append(Component.text(" [Accept]", NamedTextColor.GREEN).clickEvent(
+                            ClickEvent.runCommand("/team approve " + item.player().playerId())))
+                    .append(Component.text(" [Reject]", NamedTextColor.RED).clickEvent(
+                            ClickEvent.runCommand("/team reject " + item.player().playerId())))));
+        }));
+        return Command.SINGLE_SUCCESS;
+    }
+
+    private int listSentInvitations(CommandSourceStack source) {
+        var actor = player(source);
+        if (actor == null) return 0;
+        var team = team(actor);
+        if (team == null || !teams.hasPermissionCached(actor.getUniqueId(), "team.invite"))
+            return forbidden(actor);
+        teams.outgoingInvitations(team.id()).whenComplete((items, failure) -> dispatch(actor, () -> {
+            if (failure != null) actor.sendMessage(messages.component(actor, "error.database_unavailable"));
+            else if (items.isEmpty()) actor.sendMessage(messages.component(actor, "sent-invitations.empty"));
+            else items.forEach(item -> actor.sendMessage(Component.text(item.player().lastKnownName())
+                    .append(Component.text(" [Revoke]", NamedTextColor.RED).clickEvent(
+                            ClickEvent.runCommand("/team revoke " + item.player().playerId())))));
+        }));
+        return Command.SINGLE_SUCCESS;
+    }
+
+    private int listMyRequests(CommandSourceStack source) {
+        var actor = player(source);
+        if (actor == null) return 0;
+        teams.joinRequestsByPlayer(actor.getUniqueId()).whenComplete((items, failure) ->
+                dispatch(actor, () -> {
+                    if (failure != null) actor.sendMessage(messages.component(
+                            actor, "error.database_unavailable"));
+                    else if (items.isEmpty()) actor.sendMessage(messages.component(
+                            actor, "my-requests.empty"));
+                    else items.forEach(item -> actor.sendMessage(Component.text(item.team().name())
+                            .append(Component.text(" [Cancel]", NamedTextColor.RED).clickEvent(
+                                    ClickEvent.runCommand("/team cancel " + item.team().id())))));
+                }));
+        return Command.SINGLE_SUCCESS;
+    }
+
+    private int cancelRequest(CommandSourceStack source, String teamId) {
+        var actor = player(source);
+        if (actor == null) return 0;
+        try {
+            respond(actor, "success.request-cancelled", teams.cancelJoinRequest(
+                    new TeamRequests.TeamAction(actor.getUniqueId(), TeamId.parse(teamId))));
+        } catch (IllegalArgumentException exception) {
+            actor.sendMessage(messages.component(actor, "error.invalid-team-id"));
+            return 0;
+        }
+        return Command.SINGLE_SUCCESS;
+    }
+
+    private int listBans(CommandSourceStack source) {
+        var actor = player(source);
+        if (actor == null) return 0;
+        var team = team(actor);
+        if (team == null || !teams.hasPermissionCached(actor.getUniqueId(), "team.ban"))
+            return forbidden(actor);
+        teams.bans(team.id()).whenComplete((items, failure) -> dispatch(actor, () -> {
+            if (failure != null) actor.sendMessage(messages.component(actor, "error.database_unavailable"));
+            else if (items.isEmpty()) actor.sendMessage(messages.component(actor, "bans.empty"));
+            else items.forEach(item -> actor.sendMessage(Component.text(item.player().lastKnownName())
+                    .append(Component.text(" [Unban]", NamedTextColor.GREEN).clickEvent(
+                            ClickEvent.runCommand("/team unban " + item.player().playerId())))));
+        }));
+        return Command.SINGLE_SUCCESS;
+    }
+
+    private int listSettings(CommandSourceStack source) {
+        var actor = player(source);
+        if (actor == null) return 0;
+        var snapshot = team(actor);
+        if (snapshot == null) return 0;
+        var line = Component.empty();
+        if (teams.hasPermissionCached(actor.getUniqueId(), "team.rename")) line = line.append(
+                Component.text("[Rename]", NamedTextColor.YELLOW).clickEvent(
+                        ClickEvent.suggestCommand("/team rename "))).append(Component.space());
+        if (teams.hasPermissionCached(actor.getUniqueId(), "team.settings.manage")) line = line
+                .append(Component.text("[Tag]", NamedTextColor.YELLOW).clickEvent(
+                        ClickEvent.suggestCommand("/team tag "))).append(Component.space())
+                .append(Component.text(snapshot.visibility() == me.alexisbinh.openteams.api.TeamVisibility.PUBLIC
+                                ? "[Make private]" : "[Make public]", NamedTextColor.YELLOW)
+                        .clickEvent(ClickEvent.runCommand("/team visibility "
+                                + (snapshot.visibility() == me.alexisbinh.openteams.api.TeamVisibility.PUBLIC
+                                ? "private" : "public")))).append(Component.space());
+        if (teams.hasPermissionCached(actor.getUniqueId(), "team.ban")) line = line.append(
+                Component.text("[Bans]", NamedTextColor.YELLOW).clickEvent(
+                        ClickEvent.runCommand("/team bans")));
+        if (line.equals(Component.empty()) && !snapshot.ownerId().equals(actor.getUniqueId()))
+            return forbidden(actor);
+        actor.sendMessage(messages.component(actor, "settings.title"));
+        actor.sendMessage(line);
         return Command.SINGLE_SUCCESS;
     }
 
@@ -358,7 +520,8 @@ public final class TeamCommands {
         try {
             var request = new TeamRequests.TargetAction(player.getUniqueId(), TeamId.parse(teamId),
                     player.getUniqueId());
-            respond(player, accept ? teams.acceptInvitation(request) : teams.declineInvitation(request));
+            respond(player, accept ? "success.joined" : "success.declined",
+                    accept ? teams.acceptInvitation(request) : teams.declineInvitation(request));
         } catch (IllegalArgumentException exception) {
             player.sendMessage(messages.component(player, "error.invalid-team-id"));
             return 0;
@@ -368,18 +531,15 @@ public final class TeamCommands {
 
     private int invite(CommandSourceStack source, String playerName) {
         var actor = player(source);
-        if (actor == null) {
+        if (actor == null) return 0;
+        var team = teams.membershipCached(actor.getUniqueId()).optionalTeam();
+        if (team.isEmpty()) {
+            actor.sendMessage(messages.component(actor, "error.not-in-team"));
             return 0;
         }
-        var target = Bukkit.getOfflinePlayerIfCached(playerName);
-        var team = teams.findByPlayerCached(actor.getUniqueId());
-        if (target == null || team.isEmpty()) {
-            actor.sendMessage(messages.component(actor,
-                    target == null ? "error.player-not-found" : "error.not-in-team"));
-            return 0;
-        }
-        respond(actor, teams.invite(new TeamRequests.TargetAction(
-                actor.getUniqueId(), team.get().id(), target.getUniqueId())));
+        resolveTarget(actor, playerName, directoryCandidates(playerName), targetId ->
+                respond(actor, "success.invited", teams.invite(new TeamRequests.TargetAction(
+                        actor.getUniqueId(), team.get().id(), targetId))));
         return Command.SINGLE_SUCCESS;
     }
 
@@ -390,7 +550,7 @@ public final class TeamCommands {
         }
         try {
             var id = TeamId.parse(teamId);
-            respond(player, teams.acceptInvitation(new TeamRequests.TargetAction(
+            respond(player, "success.joined", teams.acceptInvitation(new TeamRequests.TargetAction(
                     player.getUniqueId(), id, player.getUniqueId())));
         } catch (IllegalArgumentException exception) {
             player.sendMessage(messages.component(player, "error.invalid-team-id"));
@@ -405,7 +565,7 @@ public final class TeamCommands {
             return 0;
         }
         try {
-            respond(player, teams.requestJoin(new TeamRequests.TeamAction(
+            respond(player, "success.requested", teams.requestJoin(new TeamRequests.TeamAction(
                     player.getUniqueId(), TeamId.parse(teamId))));
         } catch (IllegalArgumentException exception) {
             player.sendMessage(messages.component(player, "error.invalid-team-id"));
@@ -419,7 +579,7 @@ public final class TeamCommands {
         if (player == null) {
             return 0;
         }
-        var team = teams.findByPlayerCached(player.getUniqueId());
+        var team = teams.membershipCached(player.getUniqueId()).optionalTeam();
         if (team.isEmpty()) {
             player.sendMessage(messages.component(player, "error.not-in-team"));
             return 0;
@@ -428,7 +588,7 @@ public final class TeamCommands {
             player.sendMessage(messages.component(player, "notice.owner-cannot-leave"));
             return 0;
         }
-        respond(player, teams.leave(new TeamRequests.TeamAction(
+        respond(player, "success.left", teams.leave(new TeamRequests.TeamAction(
                 player.getUniqueId(), team.get().id())));
         return Command.SINGLE_SUCCESS;
     }
@@ -438,20 +598,41 @@ public final class TeamCommands {
         if (actor == null) {
             return 0;
         }
-        var target = Bukkit.getPlayerExact(playerName);
-        var team = teams.findByPlayerCached(actor.getUniqueId());
-        if (target == null || team.isEmpty()) {
-            actor.sendMessage(messages.component(actor,
-                    target == null ? "error.player-offline" : "error.not-in-team"));
+        var team = teams.membershipCached(actor.getUniqueId()).optionalTeam();
+        if (team.isEmpty()) {
+            actor.sendMessage(messages.component(actor, "error.not-in-team"));
             return 0;
         }
-        var request = new TeamRequests.TargetAction(
-                actor.getUniqueId(), team.get().id(), target.getUniqueId());
-        respond(actor, switch (operation) {
-            case KICK -> teams.kick(request);
-            case TRANSFER -> teams.transferOwnership(request);
-            case APPROVE -> teams.acceptJoinRequest(request);
-            case UNBAN -> teams.unban(request);
+        var candidates = switch (operation) {
+            case KICK, TRANSFER -> memberCandidates(team.get());
+            case APPROVE, REJECT -> teams.joinRequests(team.get().id()).thenApply(items ->
+                    items.stream().map(me.alexisbinh.openteams.api.TeamDirectory.JoinRequest::player).toList());
+            case UNBAN -> teams.bans(team.get().id()).thenApply(items ->
+                    items.stream().map(me.alexisbinh.openteams.api.TeamDirectory.Ban::player).toList());
+            case REVOKE -> teams.outgoingInvitations(team.get().id()).thenApply(items ->
+                    items.stream().map(me.alexisbinh.openteams.api.TeamDirectory.OutgoingInvitation::player)
+                            .toList());
+        };
+        resolveTarget(actor, playerName, candidates, targetId -> {
+            var request = new TeamRequests.TargetAction(
+                    actor.getUniqueId(), team.get().id(), targetId);
+            var stage = switch (operation) {
+                case KICK -> teams.kick(request);
+                case TRANSFER -> teams.transferOwnership(request);
+                case APPROVE -> teams.acceptJoinRequest(request);
+                case REJECT -> teams.rejectJoinRequest(request);
+                case UNBAN -> teams.unban(request);
+                case REVOKE -> teams.revokeInvitation(request);
+            };
+            var success = switch (operation) {
+                case KICK -> "success.kicked";
+                case TRANSFER -> "success.transferred";
+                case APPROVE -> "success.request-accepted";
+                case REJECT -> "success.request-rejected";
+                case UNBAN -> "success.unbanned";
+                case REVOKE -> "success.revoked";
+            };
+            respond(actor, success, stage);
         });
         return Command.SINGLE_SUCCESS;
     }
@@ -461,15 +642,14 @@ public final class TeamCommands {
         if (actor == null) {
             return 0;
         }
-        var target = Bukkit.getPlayerExact(playerName);
-        var team = teams.findByPlayerCached(actor.getUniqueId());
-        if (target == null || team.isEmpty()) {
-            actor.sendMessage(messages.component(actor,
-                    target == null ? "error.player-offline" : "error.not-in-team"));
+        var team = teams.membershipCached(actor.getUniqueId()).optionalTeam();
+        if (team.isEmpty()) {
+            actor.sendMessage(messages.component(actor, "error.not-in-team"));
             return 0;
         }
-        respond(actor, teams.ban(new TeamRequests.Ban(
-                actor.getUniqueId(), team.get().id(), target.getUniqueId(), reason)));
+        resolveTarget(actor, playerName, directoryCandidates(playerName), targetId ->
+                respond(actor, "success.banned", teams.ban(new TeamRequests.Ban(
+                        actor.getUniqueId(), team.get().id(), targetId, reason))));
         return Command.SINGLE_SUCCESS;
     }
 
@@ -478,23 +658,22 @@ public final class TeamCommands {
         if (actor == null) {
             return 0;
         }
-        var target = Bukkit.getPlayerExact(playerName);
-        var team = teams.findByPlayerCached(actor.getUniqueId());
-        if (target == null || team.isEmpty()) {
-            actor.sendMessage(messages.component(actor,
-                    target == null ? "error.player-offline" : "error.not-in-team"));
+        var team = teams.membershipCached(actor.getUniqueId()).optionalTeam();
+        if (team.isEmpty()) {
+            actor.sendMessage(messages.component(actor, "error.not-in-team"));
             return 0;
         }
-        respond(actor, teams.changeRole(new TeamRequests.ChangeRole(
-                actor.getUniqueId(), team.get().id(), target.getUniqueId(),
-                role.toLowerCase(java.util.Locale.ROOT))));
+        resolveTarget(actor, playerName, memberCandidates(team.get()), targetId ->
+                respond(actor, "success.role-changed", teams.changeRole(new TeamRequests.ChangeRole(
+                        actor.getUniqueId(), team.get().id(), targetId,
+                        role.toLowerCase(java.util.Locale.ROOT)))));
         return Command.SINGLE_SUCCESS;
     }
 
     private int setting(CommandSourceStack source, String key, String value) {
         var actor = player(source);
         var team = actor == null ? java.util.Optional.<TeamSnapshot>empty()
-                : teams.findByPlayerCached(actor.getUniqueId());
+                : teams.membershipCached(actor.getUniqueId()).optionalTeam();
         if (actor == null || team.isEmpty()) {
             if (actor != null) {
                 actor.sendMessage(messages.component(actor, "error.not-in-team"));
@@ -502,20 +681,34 @@ public final class TeamCommands {
             return 0;
         }
         var namespacedKey = key.contains(":") ? key : "openteams:" + key;
-        respond(actor, teams.setSetting(new TeamRequests.SetSetting(
+        respond(actor, "success.updated", teams.setSetting(new TeamRequests.SetSetting(
                 actor.getUniqueId(), team.get().id(), namespacedKey, value)));
         return Command.SINGLE_SUCCESS;
     }
 
-    private int visibility(CommandSourceStack source, String value) {
+    private int visibility(CommandSourceStack source, String value, boolean confirmed) {
         var actor = player(source);
         var team = actor == null ? java.util.Optional.<TeamSnapshot>empty()
-                : teams.findByPlayerCached(actor.getUniqueId());
+                : teams.membershipCached(actor.getUniqueId()).optionalTeam();
         if (actor == null || team.isEmpty()) return 0;
         try {
             var visibility = me.alexisbinh.openteams.api.TeamVisibility.valueOf(
                     value.toUpperCase(java.util.Locale.ROOT));
-            respond(actor, teams.setVisibility(new TeamRequests.SetVisibility(
+            if (visibility == me.alexisbinh.openteams.api.TeamVisibility.PRIVATE && !confirmed) {
+                teams.joinRequests(team.get().id()).whenComplete((requests, failure) -> dispatch(actor, () -> {
+                    if (failure != null) {
+                        actor.sendMessage(messages.component(actor, "error.database_unavailable"));
+                        return;
+                    }
+                    actor.sendMessage(messages.component(actor, "confirm.make-private",
+                                    java.util.Map.of("count", Integer.toString(requests.size())))
+                            .append(Component.space()).append(Component.text("[Confirm]",
+                                    NamedTextColor.RED).clickEvent(ClickEvent.runCommand(
+                                    "/team visibility private confirm"))));
+                }));
+                return Command.SINGLE_SUCCESS;
+            }
+            respond(actor, "success.visibility", teams.setVisibility(new TeamRequests.SetVisibility(
                     actor.getUniqueId(), team.get().id(), visibility)));
         } catch (IllegalArgumentException exception) {
             actor.sendMessage(messages.component(actor, "error.visibility-value"));
@@ -527,14 +720,14 @@ public final class TeamCommands {
     private int rename(CommandSourceStack source, String name) {
         var actor = player(source);
         var team = actor == null ? java.util.Optional.<TeamSnapshot>empty()
-                : teams.findByPlayerCached(actor.getUniqueId());
+                : teams.membershipCached(actor.getUniqueId()).optionalTeam();
         if (actor == null || team.isEmpty()) {
             if (actor != null) {
                 actor.sendMessage(messages.component(actor, "error.not-in-team"));
             }
             return 0;
         }
-        respond(actor, teams.rename(new TeamRequests.Rename(
+        respond(actor, "success.renamed", teams.rename(new TeamRequests.Rename(
                 actor.getUniqueId(), team.get().id(), name)));
         return Command.SINGLE_SUCCESS;
     }
@@ -542,14 +735,14 @@ public final class TeamCommands {
     private int tag(CommandSourceStack source, String tag) {
         var actor = player(source);
         var team = actor == null ? java.util.Optional.<TeamSnapshot>empty()
-                : teams.findByPlayerCached(actor.getUniqueId());
+                : teams.membershipCached(actor.getUniqueId()).optionalTeam();
         if (actor == null || team.isEmpty()) {
             if (actor != null) {
                 actor.sendMessage(messages.component(actor, "error.not-in-team"));
             }
             return 0;
         }
-        respond(actor, teams.setTag(new TeamRequests.SetTag(
+        respond(actor, "success.tagged", teams.setTag(new TeamRequests.SetTag(
                 actor.getUniqueId(), team.get().id(), tag)));
         return Command.SINGLE_SUCCESS;
     }
@@ -557,14 +750,14 @@ public final class TeamCommands {
     private int disband(CommandSourceStack source) {
         var actor = player(source);
         var team = actor == null ? java.util.Optional.<TeamSnapshot>empty()
-                : teams.findByPlayerCached(actor.getUniqueId());
+                : teams.membershipCached(actor.getUniqueId()).optionalTeam();
         if (actor == null || team.isEmpty()) {
             if (actor != null) {
                 actor.sendMessage(messages.component(actor, "error.not-in-team"));
             }
             return 0;
         }
-        respond(actor, teams.disband(new TeamRequests.TeamAction(
+        respond(actor, "success.disbanded", teams.disband(new TeamRequests.TeamAction(
                 actor.getUniqueId(), team.get().id())));
         return Command.SINGLE_SUCCESS;
     }
@@ -626,16 +819,18 @@ public final class TeamCommands {
 
     private void respond(
             Player player,
+            String successKey,
             java.util.concurrent.CompletionStage<OperationResult<TeamSnapshot>> stage
     ) {
         stage.whenComplete((result, exception) -> dispatch(player, () -> {
             if (exception != null) {
                 player.sendMessage(messages.component(player, "error.database_unavailable"));
             } else if (result instanceof OperationResult.Success<TeamSnapshot>) {
-                player.sendMessage(messages.component(player, "success.updated"));
+                player.sendMessage(messages.component(player, successKey));
             } else if (result instanceof OperationResult.Failure<TeamSnapshot> failure) {
-                player.sendMessage(messages.component(player,
-                        "error." + failure.code().name().toLowerCase(java.util.Locale.ROOT)));
+                var key = failure.messageKey().startsWith("openteams.")
+                        ? failure.messageKey().substring("openteams.".length()) : failure.messageKey();
+                player.sendMessage(messages.component(player, key, failure.messageArguments()));
             }
         }));
     }
@@ -685,10 +880,146 @@ public final class TeamCommands {
         return Component.text(message, NamedTextColor.RED);
     }
 
-    private static java.util.concurrent.CompletableFuture<com.mojang.brigadier.suggestion.Suggestions>
-    suggestOnline(com.mojang.brigadier.suggestion.SuggestionsBuilder builder) {
-        Bukkit.getOnlinePlayers().forEach(player -> builder.suggest(player.getName()));
-        return builder.buildFuture();
+    private TeamSnapshot team(Player actor) {
+        var team = teams.membershipCached(actor.getUniqueId()).optionalTeam();
+        if (team.isEmpty()) actor.sendMessage(messages.component(actor, "error.not-in-team"));
+        return team.orElse(null);
+    }
+
+    private int forbidden(Player actor) {
+        actor.sendMessage(messages.component(actor, "error.forbidden"));
+        return 0;
+    }
+
+    private java.util.concurrent.CompletionStage<java.util.List<me.alexisbinh.openteams.api.TeamDirectory.PlayerSummary>>
+    memberCandidates(TeamSnapshot team) {
+        var ids = team.members().stream()
+                .map(me.alexisbinh.openteams.api.TeamMemberSnapshot::playerId).toList();
+        return players.resolve(ids).thenApply(byId -> ids.stream().map(byId::get).toList());
+    }
+
+    private java.util.concurrent.CompletionStage<java.util.List<me.alexisbinh.openteams.api.TeamDirectory.PlayerSummary>>
+    directoryCandidates(String input) {
+        try {
+            var id = UUID.fromString(input);
+            return players.resolve(java.util.List.of(id)).thenApply(byId -> java.util.List.of(byId.get(id)));
+        } catch (IllegalArgumentException ignored) {
+            return players.findExact(input);
+        }
+    }
+
+    private void resolveTarget(
+            Player actor,
+            String input,
+            java.util.concurrent.CompletionStage<java.util.List<me.alexisbinh.openteams.api.TeamDirectory.PlayerSummary>> stage,
+            java.util.function.Consumer<UUID> resolved
+    ) {
+        stage.whenComplete((candidates, failure) -> dispatch(actor, () -> {
+            if (failure != null) {
+                actor.sendMessage(messages.component(actor, "error.database_unavailable"));
+                return;
+            }
+            java.util.List<me.alexisbinh.openteams.api.TeamDirectory.PlayerSummary> matches;
+            try {
+                var id = UUID.fromString(input);
+                matches = candidates.stream().filter(item -> item.playerId().equals(id)).toList();
+            } catch (IllegalArgumentException ignored) {
+                matches = candidates.stream().filter(item ->
+                        item.lastKnownName().equalsIgnoreCase(input)).toList();
+            }
+            if (matches.isEmpty()) {
+                actor.sendMessage(messages.component(actor, "error.player-not-found"));
+            } else if (matches.size() > 1) {
+                actor.sendMessage(messages.component(actor, "error.player-ambiguous"));
+                matches.forEach(item -> actor.sendMessage(Component.text(
+                        item.lastKnownName() + " · " + item.playerId(), NamedTextColor.GRAY)));
+            } else {
+                resolved.accept(matches.getFirst().playerId());
+            }
+        }));
+    }
+
+    private java.util.concurrent.CompletableFuture<com.mojang.brigadier.suggestion.Suggestions>
+    suggestDirectory(com.mojang.brigadier.suggestion.SuggestionsBuilder builder) {
+        return players.search(builder.getRemaining(), 20).thenApply(items -> {
+            items.forEach(item -> builder.suggest(item.lastKnownName()));
+            return builder.build();
+        }).toCompletableFuture();
+    }
+
+    private java.util.concurrent.CompletableFuture<com.mojang.brigadier.suggestion.Suggestions>
+    suggestMembers(CommandSourceStack source,
+                   com.mojang.brigadier.suggestion.SuggestionsBuilder builder) {
+        if (!(source.getSender() instanceof Player player)) return builder.buildFuture();
+        var team = teams.membershipCached(player.getUniqueId()).optionalTeam();
+        if (team.isEmpty()) return builder.buildFuture();
+        return memberCandidates(team.get()).thenApply(items -> {
+            items.forEach(item -> builder.suggest(item.lastKnownName()));
+            return builder.build();
+        }).toCompletableFuture();
+    }
+
+    private java.util.concurrent.CompletableFuture<com.mojang.brigadier.suggestion.Suggestions>
+    suggestRequests(CommandSourceStack source,
+                    com.mojang.brigadier.suggestion.SuggestionsBuilder builder) {
+        if (!(source.getSender() instanceof Player player)) return builder.buildFuture();
+        var team = teams.membershipCached(player.getUniqueId()).optionalTeam();
+        if (team.isEmpty()) return builder.buildFuture();
+        return teams.joinRequests(team.get().id()).thenApply(items -> {
+            items.forEach(item -> builder.suggest(item.player().lastKnownName()));
+            return builder.build();
+        }).toCompletableFuture();
+    }
+
+    private java.util.concurrent.CompletableFuture<com.mojang.brigadier.suggestion.Suggestions>
+    suggestBans(CommandSourceStack source,
+                com.mojang.brigadier.suggestion.SuggestionsBuilder builder) {
+        if (!(source.getSender() instanceof Player player)) return builder.buildFuture();
+        var team = teams.membershipCached(player.getUniqueId()).optionalTeam();
+        if (team.isEmpty()) return builder.buildFuture();
+        return teams.bans(team.get().id()).thenApply(items -> {
+            items.forEach(item -> builder.suggest(item.player().lastKnownName()));
+            return builder.build();
+        }).toCompletableFuture();
+    }
+
+    private java.util.concurrent.CompletableFuture<com.mojang.brigadier.suggestion.Suggestions>
+    suggestOutgoing(CommandSourceStack source,
+                    com.mojang.brigadier.suggestion.SuggestionsBuilder builder) {
+        if (!(source.getSender() instanceof Player player)) return builder.buildFuture();
+        var team = teams.membershipCached(player.getUniqueId()).optionalTeam();
+        if (team.isEmpty()) return builder.buildFuture();
+        return teams.outgoingInvitations(team.get().id()).thenApply(items -> {
+            items.forEach(item -> builder.suggest(item.player().lastKnownName()));
+            return builder.build();
+        }).toCompletableFuture();
+    }
+
+    private java.util.concurrent.CompletableFuture<com.mojang.brigadier.suggestion.Suggestions>
+    suggestMyRequests(CommandSourceStack source,
+                      com.mojang.brigadier.suggestion.SuggestionsBuilder builder) {
+        if (!(source.getSender() instanceof Player player)) return builder.buildFuture();
+        return teams.joinRequestsByPlayer(player.getUniqueId()).thenApply(items -> {
+            items.forEach(item -> builder.suggest(item.team().id().toString()));
+            return builder.build();
+        }).toCompletableFuture();
+    }
+
+    private com.mojang.brigadier.suggestion.Suggestions suggestAssignableRoles(
+            CommandSourceStack source,
+            com.mojang.brigadier.suggestion.SuggestionsBuilder builder,
+            java.util.List<me.alexisbinh.openteams.api.TeamDirectory.Role> roles) {
+        if (!(source.getSender() instanceof Player player)) return builder.build();
+        var team = teams.membershipCached(player.getUniqueId()).optionalTeam();
+        if (team.isEmpty()) return builder.build();
+        var actorRole = team.get().members().stream()
+                .filter(item -> item.playerId().equals(player.getUniqueId())).findFirst()
+                .map(me.alexisbinh.openteams.api.TeamMemberSnapshot::roleKey).orElse("");
+        var priority = roles.stream().filter(role -> role.key().equals(actorRole)).findFirst()
+                .map(me.alexisbinh.openteams.api.TeamDirectory.Role::priority).orElse(Integer.MIN_VALUE);
+        roles.stream().filter(role -> !role.protectedRole() && role.priority() < priority)
+                .forEach(role -> builder.suggest(role.key()));
+        return builder.build();
     }
 
     private java.util.concurrent.CompletableFuture<com.mojang.brigadier.suggestion.Suggestions>
@@ -705,6 +1036,8 @@ public final class TeamCommands {
         KICK,
         TRANSFER,
         APPROVE,
-        UNBAN
+        REJECT,
+        UNBAN,
+        REVOKE
     }
 }

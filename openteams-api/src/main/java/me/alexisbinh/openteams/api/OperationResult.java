@@ -3,6 +3,7 @@ package me.alexisbinh.openteams.api;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.Map;
 
 public sealed interface OperationResult<T>
         permits OperationResult.Success, OperationResult.Failure {
@@ -19,11 +20,13 @@ public sealed interface OperationResult<T>
     record Failure<T>(
             TeamErrorCode code,
             String messageKey,
+            Map<String, String> messageArguments,
             UUID correlationId
     ) implements OperationResult<T> {
         public Failure {
             Objects.requireNonNull(code, "code");
             Objects.requireNonNull(messageKey, "messageKey");
+            messageArguments = Map.copyOf(messageArguments);
             Objects.requireNonNull(correlationId, "correlationId");
         }
     }
@@ -37,7 +40,7 @@ public sealed interface OperationResult<T>
     }
 
     static <T> OperationResult<T> failure(TeamErrorCode code, String messageKey) {
-        return failure(code, messageKey, UUID.randomUUID());
+        return failure(code, messageKey, Map.of(), UUID.randomUUID());
     }
 
     static <T> OperationResult<T> failure(
@@ -45,7 +48,16 @@ public sealed interface OperationResult<T>
             String messageKey,
             UUID correlationId
     ) {
-        return new Failure<>(code, messageKey, correlationId);
+        return failure(code, messageKey, Map.of(), correlationId);
+    }
+
+    static <T> OperationResult<T> failure(
+            TeamErrorCode code,
+            String messageKey,
+            Map<String, String> messageArguments,
+            UUID correlationId
+    ) {
+        return new Failure<>(code, messageKey, messageArguments, correlationId);
     }
 
     default boolean isSuccess() {

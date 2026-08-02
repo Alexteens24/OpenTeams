@@ -2,6 +2,7 @@ package me.alexisbinh.openteams.core;
 
 import me.alexisbinh.openteams.api.OpenTeams;
 import me.alexisbinh.openteams.api.TeamService;
+import me.alexisbinh.openteams.api.PlayerDirectory;
 import me.alexisbinh.openteams.api.extension.CommandRegistry;
 import me.alexisbinh.openteams.api.extension.PlaceholderRegistry;
 import me.alexisbinh.openteams.api.extension.MutationPolicyRegistry;
@@ -14,15 +15,18 @@ import me.alexisbinh.openteams.core.runtime.RuntimeController;
 
 public final class OpenTeamsImpl implements OpenTeams {
     private final TeamService teams;
+    private final PlayerDirectory players;
     private final ExtensionRegistries registries;
     private final RuntimeController runtime;
 
     public OpenTeamsImpl(
             TeamService teams,
+            PlayerDirectory players,
             ExtensionRegistries registries,
             RuntimeController runtime
     ) {
         this.teams = teams;
+        this.players = players;
         this.registries = registries;
         this.runtime = runtime;
     }
@@ -35,6 +39,11 @@ public final class OpenTeamsImpl implements OpenTeams {
     @Override
     public TeamService teams() {
         return teams;
+    }
+
+    @Override
+    public PlayerDirectory players() {
+        return players;
     }
 
     @Override

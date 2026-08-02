@@ -311,6 +311,38 @@ public final class JdbcTeamStore {
         return Map.copyOf(resultMap);
     }
 
+    public List<TeamDirectory.PlayerSummary> findPlayersExact(String name) throws SQLException {
+        return playerSearch("normalized_name = ?", TeamNames.normalize(name), 100);
+    }
+
+    public List<TeamDirectory.PlayerSummary> searchPlayers(String query, int limit)
+            throws SQLException {
+        return playerSearch("normalized_name LIKE ?", TeamNames.normalize(query) + "%", limit);
+    }
+
+    private List<TeamDirectory.PlayerSummary> playerSearch(
+            String predicate, String value, int limit) throws SQLException {
+        var players = new ArrayList<TeamDirectory.PlayerSummary>();
+        try (var connection = dataSource.getConnection();
+             var statement = connection.prepareStatement(
+                     "SELECT player_id,last_known_name,updated_at FROM player_directory"
+                             + " WHERE namespace=? AND " + predicate
+                             + " ORDER BY updated_at DESC LIMIT ?")) {
+            statement.setString(1, namespace);
+            statement.setString(2, value);
+            statement.setInt(3, limit);
+            try (var rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    players.add(new TeamDirectory.PlayerSummary(
+                            UUID.fromString(rows.getString("player_id")),
+                            rows.getString("last_known_name"),
+                            Instant.ofEpochMilli(rows.getLong("updated_at"))));
+                }
+            }
+        }
+        return List.copyOf(players);
+    }
+
     public void rememberPlayer(UUID playerId, String currentName) throws SQLException, DomainFailure {
         transaction(connection -> {
             try (var delete = connection.prepareStatement(
@@ -1509,7 +1541,23 @@ public final class JdbcTeamStore {
     }
 
     private static DomainFailure failure(TeamErrorCode code, String message) {
-        return new DomainFailure(code, message);
+        var key = switch (message) {
+            case "Cannot manage an equal or higher role",
+                 "Cannot assign an equal or higher role" -> "openteams.error.target-hierarchy";
+            case "Private teams only accept invitations" -> "openteams.error.private-team";
+            case "Role member limit reached" -> "openteams.error.role-limit";
+            case "Team member limit reached" -> "openteams.error.team-limit";
+            case "Owner must transfer ownership first" -> "openteams.error.owner-must-transfer";
+            case "Owner cannot be kicked", "Owner cannot be banned" -> "openteams.error.owner-protected";
+            case "Owner role can only change through ownership transfer" ->
+                    "openteams.error.owner-role-protected";
+            case "Only the owner can transfer ownership",
+                 "Only the owner can perform this action" -> "openteams.error.owner-only";
+            case "Target is banned from this team", "Player is banned from this team" ->
+                    "openteams.error.player-banned";
+            default -> "openteams.error." + code.name().toLowerCase(java.util.Locale.ROOT);
+        };
+        return new DomainFailure(code, key, Map.of());
     }
 
     @FunctionalInterface
