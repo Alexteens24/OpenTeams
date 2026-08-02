@@ -34,6 +34,9 @@ Documentation: [alexteens24.github.io/OpenTeams](https://alexteens24.github.io/O
 The deployable plugin is generated at
 `openteams-core/build/libs/openteams-core-<version>.jar`.
 
+The official Homes addon is generated independently at
+`addons/openteams-homes/build/libs/openteams-homes-<version>.jar`.
+
 The current `V1__core_schema.sql` is a consolidated development baseline.
 Delete development databases created by older alpha schemas; upgrade migrations
 will begin only after the first published schema is frozen.
@@ -49,5 +52,6 @@ unsupported or incomplete locales fall back to `ui.default-locale`.
 - `openteams-dialog-ui` — isolated UI adapter and chat fallback
 - `openteams-test-kit` — fixtures for addon developers
 - `openteams-example-addon` — public API compatibility example
+- `addons/openteams-homes` — independent Team Home/Warp plugin with its own storage
 
 OpenTeams is licensed under Apache-2.0.

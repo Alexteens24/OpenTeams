@@ -22,7 +22,7 @@ git checkout <commit-sha>
 The deployable shaded artifact is:
 
 ```text
-openteams-core/build/libs/openteams-core-1.0.0-SNAPSHOT.jar
+openteams-core/build/libs/openteams-core-0.1.0.jar
 ```
 
 JARs from `openteams-api`, `openteams-dialog-ui`, `openteams-test-kit`, and the example addon do not replace the Core JAR on a server.

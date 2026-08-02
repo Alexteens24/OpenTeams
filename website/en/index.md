@@ -54,5 +54,5 @@ From first installation, commands, and permissions to database recovery, the add
 </CardGrid>
 
 ::: warning Currently in development
-`1.0.0-SNAPSHOT` is not a production-stable 1.0 release. The schema is a development baseline; upgrade migrations begin only after the first released schema is frozen.
+`0.1.0` is not a production-stable 1.0 release. The schema is a development baseline; upgrade migrations begin only after the first released schema is frozen.
 :::

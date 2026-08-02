@@ -6,4 +6,5 @@ include(
     "openteams-dialog-ui",
     "openteams-test-kit",
     "openteams-example-addon",
+    "addons:openteams-homes",
 )

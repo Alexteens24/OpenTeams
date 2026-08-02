@@ -1,6 +1,6 @@
 # Release status
 
-<span class="ot-badge">1.0.0-SNAPSHOT · indev</span>
+<span class="ot-badge">0.1.0 · indev</span>
 
 OpenTeams is under active development. The version in `plugin.yml` is not a promise of production-stable 1.0.
 

@@ -40,5 +40,5 @@
 - API compatibility check (for example japicmp) and generated reference docs.
 - TeamChest remains a separate addon milestone and is not part of the Core jar.
 
-The project version is `1.0.0-SNAPSHOT`; this checklist prevents treating the
+The project version is `0.1.0`; this checklist prevents treating the
 artifact as a production-stable 1.0 release prematurely.

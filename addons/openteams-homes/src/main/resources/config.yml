@@ -1,0 +1,51 @@
+features:
+  home: true
+  warps: true
+
+server-id: local
+
+storage:
+  type: sqlite
+  namespace: default
+  sqlite-file: homes.db
+  host: localhost
+  port: 3306
+  database: openteams_homes
+  username: openteams
+  password: change-me
+  pool-size: 8
+  connection-timeout-ms: 3000
+
+warps:
+  maximum-per-team: 20
+  page-size: 8
+  name-min-length: 1
+  name-max-length: 24
+
+warmup:
+  home-seconds: 5
+  warp-seconds: 5
+  movement-threshold: 0.2
+  cancel-on-move: true
+  cancel-on-damage: true
+  cancel-on-teleport: true
+
+cooldown:
+  shared: true
+  home-seconds: 30
+  warp-seconds: 30
+
+safety:
+  enabled: true
+  search-radius: 3
+  vertical-search: 4
+  allow-water: true
+  allow-lava: false
+  allow-fire: false
+  allow-portal: false
+  respect-world-border: true
+  chunk-load-timeout-ms: 5000
+
+cache:
+  expiration-seconds: 300
+  maximum-teams: 10000

@@ -33,7 +33,7 @@ public final class OpenTeamsImpl implements OpenTeams {
 
     @Override
     public String apiVersion() {
-        return "1.0.0";
+        return "0.1.0";
     }
 
     @Override

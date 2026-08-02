@@ -8,7 +8,7 @@ This guide takes a stopped Paper/Folia server to a `WRITABLE` OpenTeams runtime 
 |---|---|
 | Server | Paper or Folia `1.21.11+` |
 | Java runtime | 21 or newer |
-| JAR | `openteams-core-1.0.0-SNAPSHOT.jar` |
+| JAR | `openteams-core-0.1.0.jar` |
 | Write access | `plugins/OpenTeams/` |
 | External database/port | Not needed for SQLite |
 

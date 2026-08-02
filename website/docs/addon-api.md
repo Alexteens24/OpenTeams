@@ -1,6 +1,6 @@
 # Addon API
 
-`openteams-api` là module public, tách khỏi Paper implementation và Dialog internals. API runtime hiện trả version string `1.0.0`, nhưng binary compatibility gate chưa được thiết lập trong indev.
+`openteams-api` là module public, tách khỏi Paper implementation và Dialog internals. API runtime hiện trả version string `0.1.0`, nhưng binary compatibility gate chưa được thiết lập trong indev.
 
 ## Khai báo dependency
 
@@ -8,7 +8,7 @@
 
 ```yaml
 name: MyTeamsAddon
-version: 1.0.0
+version: 0.1.0
 main: com.example.myaddon.MyAddonPlugin
 api-version: '1.21.11'
 folia-supported: true

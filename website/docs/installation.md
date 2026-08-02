@@ -8,7 +8,7 @@ Hướng dẫn này đi từ server Paper/Folia đang stop tới OpenTeams runti
 |---|---|
 | Server | Paper hoặc Folia `1.21.11+` |
 | Java runtime | 21 trở lên |
-| JAR | `openteams-core-1.0.0-SNAPSHOT.jar` |
+| JAR | `openteams-core-0.1.0.jar` |
 | Quyền ghi | Thư mục `plugins/OpenTeams/` |
 | Port/database ngoài | Không cần khi dùng SQLite |
 
@@ -29,7 +29,7 @@ Cấu trúc sau lần start đầu tiên:
 ```text
 server/
 ├─ plugins/
-│  ├─ openteams-core-1.0.0-SNAPSHOT.jar
+│  ├─ openteams-core-0.1.0.jar
 │  └─ OpenTeams/
 │     ├─ config.yml
 │     └─ openteams.db

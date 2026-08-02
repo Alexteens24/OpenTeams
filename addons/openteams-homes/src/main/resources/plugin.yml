@@ -1,0 +1,15 @@
+name: OpenTeams-Homes
+version: '0.1.0'
+main: me.alexisbinh.openteams.homes.OpenTeamsHomesPlugin
+api-version: '1.21.11'
+folia-supported: true
+depend: [OpenTeams]
+permissions:
+  openteams.homes.use:
+    default: true
+  openteams.homes.bypass.warmup:
+    default: op
+  openteams.homes.bypass.cooldown:
+    default: op
+  openteams.homes.bypass.safety:
+    default: op

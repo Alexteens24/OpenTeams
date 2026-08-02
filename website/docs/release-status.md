@@ -1,6 +1,6 @@
 # Trạng thái phát hành
 
-<span class="ot-badge">1.0.0-SNAPSHOT · indev</span>
+<span class="ot-badge">0.1.0 · indev</span>
 
 OpenTeams đang trong giai đoạn development. Số version trong `plugin.yml` không phải cam kết production-stable 1.0.
 

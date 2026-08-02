@@ -32,7 +32,7 @@ git checkout <commit-sha>
 Deployable shaded JAR:
 
 ```text
-openteams-core/build/libs/openteams-core-1.0.0-SNAPSHOT.jar
+openteams-core/build/libs/openteams-core-0.1.0.jar
 ```
 
 Các JAR của `openteams-api`, `openteams-dialog-ui`, `openteams-test-kit` và example addon không thay thế Core JAR trên server.

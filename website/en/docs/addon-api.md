@@ -1,12 +1,12 @@
 # Addon API
 
-`openteams-api` is independent of the Paper implementation and Dialog internals. Runtime currently reports API version `1.0.0`; indev has no binary compatibility gate yet.
+`openteams-api` is independent of the Paper implementation and Dialog internals. Runtime currently reports API version `0.1.0`; indev has no binary compatibility gate yet.
 
 ## Dependency and service discovery
 
 ```yaml
 name: MyTeamsAddon
-version: 1.0.0
+version: 0.1.0
 main: com.example.myaddon.MyAddonPlugin
 api-version: '1.21.11'
 folia-supported: true

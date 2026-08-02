@@ -54,5 +54,5 @@ Từ cài đặt lần đầu, commands và permissions đến database recovery
 </CardGrid>
 
 ::: warning Đang trong giai đoạn indev
-`1.0.0-SNAPSHOT` chưa phải production-stable 1.0. Schema hiện là development baseline; upgrade migrations chỉ bắt đầu sau khi schema phát hành đầu tiên được đóng băng.
+`0.1.0` chưa phải production-stable 1.0. Schema hiện là development baseline; upgrade migrations chỉ bắt đầu sau khi schema phát hành đầu tiên được đóng băng.
 :::
