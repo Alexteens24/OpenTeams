@@ -98,7 +98,7 @@ public final class TeamChatService implements AutoCloseable {
     }
 
     public void broadcast(Player sender, Component message) {
-        var team = teams.findByPlayerCached(sender.getUniqueId());
+        var team = teams.membershipCached(sender.getUniqueId()).optionalTeam();
         if (team.isEmpty()) {
             dispatch(sender, () -> sender.sendMessage(
                     messages.component(sender, "error.not-in-team")));

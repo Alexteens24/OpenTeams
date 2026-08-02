@@ -181,6 +181,39 @@ class JdbcTeamStoreTest {
     }
 
     @Test
+    void playerDirectorySupportsNormalizedPrefixAndAmbiguousExactNames() throws Exception {
+        var first = UUID.randomUUID();
+        var second = UUID.randomUUID();
+        var third = UUID.randomUUID();
+        store.rememberPlayer(first, "AlexisBinh");
+        store.rememberPlayer(second, "ALEXISBINH");
+        store.rememberPlayer(third, "AlexisBinh_2");
+
+        assertThat(store.findPlayersExact("alexisbinh"))
+                .extracting(item -> item.playerId()).containsExactlyInAnyOrder(first, second);
+        assertThat(store.searchPlayers("Alexis", 2)).hasSize(2)
+                .allSatisfy(item -> assertThat(item.lastKnownName())
+                        .startsWithIgnoringCase("alexis"));
+    }
+
+    @Test
+    void makingTeamPrivateDeletesPendingJoinRequestsAndUsesSpecificFailureKey()
+            throws Exception {
+        var owner = UUID.randomUUID();
+        var team = store.create(owner, "Visibility Team", "VIS");
+        team = store.setVisibility(team.id(), owner, TeamVisibility.PUBLIC);
+        store.requestJoin(team.id(), UUID.randomUUID());
+        assertThat(store.joinRequests(team.id())).hasSize(1);
+
+        store.setVisibility(team.id(), owner, TeamVisibility.PRIVATE);
+        assertThat(store.joinRequests(team.id())).isEmpty();
+        var id = team.id();
+        assertThatThrownBy(() -> store.requestJoin(id, UUID.randomUUID()))
+                .isInstanceOfSatisfying(DomainFailure.class, failure ->
+                        assertThat(failure.messageKey()).isEqualTo("openteams.error.private-team"));
+    }
+
+    @Test
     void pendingPlayerFlowsCanBeListedAndRemoved() throws Exception {
         var owner = UUID.randomUUID();
         var invited = UUID.randomUUID();

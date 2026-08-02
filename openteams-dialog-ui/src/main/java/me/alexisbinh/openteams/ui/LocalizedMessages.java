@@ -6,6 +6,7 @@ import java.util.ResourceBundle;
 import java.util.function.BiFunction;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
+import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import org.bukkit.entity.Player;
 
 public final class LocalizedMessages {
@@ -49,12 +50,26 @@ public final class LocalizedMessages {
         return component(player.locale(), key);
     }
 
+    public Component component(Player player, String key, java.util.Map<String, String> arguments) {
+        var resolvers = arguments.entrySet().stream()
+                .map(entry -> Placeholder.unparsed(entry.getKey(), entry.getValue()))
+                .toArray(net.kyori.adventure.text.minimessage.tag.resolver.TagResolver[]::new);
+        var rendered = miniMessage.deserialize(playerText(player.locale(), key), resolvers);
+        return preserveAccent(key) ? rendered : withoutColor(rendered);
+    }
+
     Component component(Locale playerLocale, String key) {
         var rendered = miniMessage.deserialize(playerText(playerLocale, key));
-        if (key.startsWith("success.") || key.startsWith("error.")
-                || COLOR_ACCENTS.contains(key)) {
-            return rendered;
-        }
+        if (preserveAccent(key)) return rendered;
+        return withoutColor(rendered);
+    }
+
+    private static boolean preserveAccent(String key) {
+        return key.startsWith("success.") || key.startsWith("error.")
+                || COLOR_ACCENTS.contains(key);
+    }
+
+    private static Component withoutColor(Component rendered) {
         var builder = rendered.toBuilder().color(null);
         builder.applyDeep(child -> child.color(null));
         return builder.build();

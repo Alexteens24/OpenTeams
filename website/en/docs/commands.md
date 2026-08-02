@@ -11,6 +11,11 @@ OpenTeams registers a Brigadier tree through Paper's Lifecycle API. `/teams` ali
 | `/team info` | Load the current team | Team member |
 | `/team explore [query]` | Search up to 10 public teams | Player |
 | `/team invitations` | List pending invitations | Player |
+| `/team members` | List online/offline members | Team member |
+| `/team requests` | List requests with approve actions | `team.join-request.accept` |
+| `/team sent` | List outgoing invitations | `team.invite` |
+| `/team bans` | List bans with unban actions | `team.ban` |
+| `/team settings` | Permission-filtered chat settings | At least one settings action |
 
 ## Invitations and requests
 
@@ -21,8 +26,12 @@ OpenTeams registers a Brigadier tree through Paper's Lifecycle API. `/teams` ali
 | `/team decline <team-id>` | Decline an invitation | Target |
 | `/team request <team-id>` | Request a public team | No current team |
 | `/team approve <player>` | Approve a request | `team.join-request.accept` |
+| `/team reject <player>` | Reject a request | `team.join-request.accept` |
+| `/team revoke <player>` | Revoke an outgoing invitation | `team.invite` |
+| `/team myrequests` | List outgoing join requests | Player |
+| `/team cancel <team-id>` | Cancel an outgoing request | Request owner |
 
-The public service API also supports reject, cancel, and revoke flows that are not all exposed as separate subcommands.
+Management suggestions come from the actual member/request/ban/invitation context and include offline players.
 
 ## Membership and moderation
 
@@ -43,7 +52,8 @@ Ownership transfer demotes the previous owner to `co_owner` in the same transact
 |---|---|
 | `/team rename <name>` | `team.rename` |
 | `/team tag <tag>` | `team.settings.manage` |
-| `/team visibility <public\|private>` | `team.settings.manage` |
+| `/team visibility public` | `team.settings.manage`; applies immediately |
+| `/team visibility private [confirm]` | `team.settings.manage`; previews deleted requests before confirmation |
 | `/team setting <key> <value>` | Permission declared by the setting |
 | `/team disband confirm` | Owner only |
 | `/team chat` | Toggle persistent team-chat mode |

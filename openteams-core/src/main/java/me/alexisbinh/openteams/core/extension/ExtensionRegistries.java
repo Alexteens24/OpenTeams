@@ -25,9 +25,11 @@ import org.bukkit.plugin.Plugin;
 
 public final class ExtensionRegistries {
     private static final Set<String> RESERVED_COMMANDS = Set.of(
-            "create", "info", "invite", "accept", "leave", "kick", "transfer",
-            "rename", "tag", "disband", "chat", "request", "approve", "ban",
-            "unban", "role", "setting", "help");
+            "create", "info", "explore", "invitations", "myrequests", "invite",
+            "accept", "decline", "request", "approve", "reject", "cancel", "revoke",
+            "members", "requests", "sent", "leave", "kick", "transfer", "ban",
+            "unban", "role", "settings", "setting", "visibility", "rename", "tag",
+            "disband", "chat", "bans", "help");
 
     private final Map<String, OwnedCommand> commands = new ConcurrentHashMap<>();
     private final Map<String, OwnedUiAction> uiActions = new ConcurrentHashMap<>();

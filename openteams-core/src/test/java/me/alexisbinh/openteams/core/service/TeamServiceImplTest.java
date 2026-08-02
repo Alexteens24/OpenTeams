@@ -102,12 +102,13 @@ class TeamServiceImplTest {
 
         assertThat(service.disband(new TeamRequests.TeamAction(owner, created.id()))
                 .toCompletableFuture().join()).isInstanceOf(OperationResult.Success.class);
-        assertThat(service.findByPlayerCached(owner)).isEmpty();
+        assertThat(service.membershipCached(owner).status())
+                .isEqualTo(me.alexisbinh.openteams.api.MembershipLookup.Status.ABSENT);
 
         var recreated = service.create(new TeamRequests.Create(owner, "Reusable Team", "REUSE"))
                 .toCompletableFuture().join();
         assertThat(recreated).isInstanceOf(OperationResult.Success.class);
-        assertThat(service.findByPlayerCached(owner)).isPresent()
+        assertThat(service.membershipCached(owner).optionalTeam()).isPresent()
                 .get().extracting(team -> team.id()).isNotEqualTo(created.id());
     }
 
@@ -153,7 +154,8 @@ class TeamServiceImplTest {
         assertThat(resultFuture.join()).isInstanceOfSatisfying(
                 OperationResult.Failure.class,
                 failure -> assertThat(failure.code()).isEqualTo(TeamErrorCode.READ_ONLY));
-        assertThat(service.findByPlayer(actor).toCompletableFuture().join()).isEmpty();
+        assertThat(service.loadMembership(actor).toCompletableFuture().join().status())
+                .isEqualTo(me.alexisbinh.openteams.api.MembershipLookup.Status.ABSENT);
         assertThat(events).isEmpty();
     }
 

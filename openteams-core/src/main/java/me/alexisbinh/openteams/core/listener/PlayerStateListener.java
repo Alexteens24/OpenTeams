@@ -19,8 +19,8 @@ public final class PlayerStateListener implements Listener {
 
     @EventHandler
     public void onJoin(PlayerJoinEvent event) {
-        teams.rememberPlayer(event.getPlayer().getUniqueId(), event.getPlayer().getName());
-        teams.findByPlayer(event.getPlayer().getUniqueId());
+        teams.remember(event.getPlayer().getUniqueId(), event.getPlayer().getName());
+        teams.loadMembership(event.getPlayer().getUniqueId());
         chat.load(event.getPlayer().getUniqueId());
     }
 

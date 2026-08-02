@@ -17,6 +17,7 @@ import java.util.function.Consumer;
 import java.util.function.BooleanSupplier;
 import me.alexisbinh.openteams.api.OperationResult;
 import me.alexisbinh.openteams.api.MembershipLookup;
+import me.alexisbinh.openteams.api.PlayerDirectory;
 import me.alexisbinh.openteams.api.TeamErrorCode;
 import me.alexisbinh.openteams.api.TeamDirectory;
 import me.alexisbinh.openteams.api.TeamId;
@@ -37,7 +38,7 @@ import me.alexisbinh.openteams.core.domain.TeamNames;
 import me.alexisbinh.openteams.core.extension.ExtensionRegistries;
 import me.alexisbinh.openteams.core.runtime.RuntimeController;
 
-public final class TeamServiceImpl implements TeamService, AutoCloseable {
+public final class TeamServiceImpl implements TeamService, PlayerDirectory, AutoCloseable {
     private final JdbcTeamStore store;
     private final TeamCache cache;
     private final ExecutorService executor;
@@ -46,6 +47,8 @@ public final class TeamServiceImpl implements TeamService, AutoCloseable {
     private final ExtensionRegistries registries;
     private final Consumer<TeamMutationCommittedEvent> eventPublisher;
     private final BooleanSupplier leaseHeld;
+    private final java.util.concurrent.ConcurrentMap<UUID, CompletableFuture<MembershipLookup>>
+            membershipLoads = new java.util.concurrent.ConcurrentHashMap<>();
 
     public TeamServiceImpl(
             JdbcTeamStore store,
@@ -70,11 +73,6 @@ public final class TeamServiceImpl implements TeamService, AutoCloseable {
     @Override
     public Optional<TeamSnapshot> findCached(TeamId id) {
         return cache.team(id);
-    }
-
-    @Override
-    public Optional<TeamSnapshot> findByPlayerCached(UUID playerId) {
-        return cache.playerTeam(playerId);
     }
 
     @Override
@@ -104,22 +102,26 @@ public final class TeamServiceImpl implements TeamService, AutoCloseable {
     }
 
     @Override
-    public CompletionStage<Optional<TeamSnapshot>> findByPlayer(UUID playerId) {
-        var load = cache.beginMembershipLoad(playerId);
-        return CompletableFuture.supplyAsync(() -> {
-            acquirePermit();
-            try {
-                var result = store.findByPlayer(playerId);
-                cache.completeMembershipLoad(load, result);
-                return result;
-            } catch (SQLException exception) {
-                cache.failMembershipLoad(load);
-                runtime.degrade();
-                throw new DatabaseOperationException(exception);
-            } finally {
-                inFlight.release();
-            }
-        }, executor);
+    public CompletionStage<MembershipLookup> loadMembership(UUID playerId) {
+        return membershipLoads.computeIfAbsent(playerId, id -> {
+            var load = cache.beginMembershipLoad(id);
+            var future = CompletableFuture.supplyAsync(() -> {
+                acquirePermit();
+                try {
+                    var result = store.findByPlayer(id);
+                    cache.completeMembershipLoad(load, result);
+                    return result.map(MembershipLookup::present).orElseGet(MembershipLookup::absent);
+                } catch (SQLException exception) {
+                    cache.failMembershipLoad(load);
+                    runtime.degrade();
+                    throw new DatabaseOperationException(exception);
+                } finally {
+                    inFlight.release();
+                }
+            }, executor);
+            future.whenComplete((ignored, failure) -> membershipLoads.remove(id, future));
+            return future;
+        });
     }
 
     @Override
@@ -161,13 +163,27 @@ public final class TeamServiceImpl implements TeamService, AutoCloseable {
     }
 
     @Override
-    public CompletionStage<Map<UUID, TeamDirectory.PlayerSummary>> resolvePlayers(
+    public CompletionStage<Map<UUID, TeamDirectory.PlayerSummary>> resolve(
             Collection<UUID> playerIds) {
         return queryValue(() -> store.resolvePlayers(playerIds));
     }
 
     @Override
-    public CompletionStage<Void> rememberPlayer(UUID playerId, String currentName) {
+    public CompletionStage<List<TeamDirectory.PlayerSummary>> findExact(String name) {
+        return queryValue(() -> store.findPlayersExact(name));
+    }
+
+    @Override
+    public CompletionStage<List<TeamDirectory.PlayerSummary>> search(String query, int limit) {
+        if (limit < 1 || limit > 100) {
+            return CompletableFuture.failedFuture(new IllegalArgumentException(
+                    "Player search limit must be between 1 and 100"));
+        }
+        return queryValue(() -> store.searchPlayers(query, limit));
+    }
+
+    @Override
+    public CompletionStage<Void> remember(UUID playerId, String currentName) {
         if (!runtime.writable()) return CompletableFuture.completedFuture(null);
         return CompletableFuture.runAsync(() -> {
             acquirePermit();
@@ -470,7 +486,8 @@ public final class TeamServiceImpl implements TeamService, AutoCloseable {
                         }
                         return OperationResult.<TeamSnapshot>failure(
                                 failure.code(),
-                                "openteams.error." + failure.code().name().toLowerCase(),
+                                failure.messageKey(),
+                                failure.messageArguments(),
                                 intent.correlationId());
                     }
                 }
@@ -494,7 +511,7 @@ public final class TeamServiceImpl implements TeamService, AutoCloseable {
                             intent.correlationId());
                 }
                 return OperationResult.<TeamSnapshot>failure(
-                        TeamErrorCode.DATABASE_UNAVAILABLE, "openteams.error.database",
+                        TeamErrorCode.DATABASE_UNAVAILABLE, "openteams.error.database_unavailable",
                         intent.correlationId());
             } finally {
                 if (permitAcquired) {

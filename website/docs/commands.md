@@ -11,6 +11,11 @@ OpenTeams đăng ký Brigadier command tree qua Paper Lifecycle API. Alias mặc
 | `/team info` | Load và hiển thị team hiện tại | Đang thuộc team |
 | `/team explore [query]` | Tìm tối đa 10 team public ở trang đầu | Player |
 | `/team invitations` | Liệt kê invitation đang chờ | Player |
+| `/team members` | Liệt kê thành viên online/offline | Đang thuộc team |
+| `/team requests` | Liệt kê request và nút duyệt | `team.join-request.accept` |
+| `/team sent` | Liệt kê lời mời đã gửi | `team.invite` |
+| `/team bans` | Liệt kê ban và nút unban | `team.ban` |
+| `/team settings` | Chat fallback cho các setting được phép | Có ít nhất một action |
 
 `/team` và mọi subcommand đều yêu cầu Bukkit permission `openteams.command.team`, mặc định cấp cho tất cả.
 
@@ -23,8 +28,12 @@ OpenTeams đăng ký Brigadier command tree qua Paper Lifecycle API. Alias mặc
 | `/team decline <team-id>` | Từ chối invitation | Target |
 | `/team request <team-id>` | Xin vào team public | Chưa thuộc team |
 | `/team approve <player>` | Accept join request của player | `team.join-request.accept` |
+| `/team reject <player>` | Từ chối join request | `team.join-request.accept` |
+| `/team revoke <player>` | Thu hồi lời mời đã gửi | `team.invite` |
+| `/team myrequests` | Liệt kê request đã gửi | Player |
+| `/team cancel <team-id>` | Hủy request đã gửi | Người gửi request |
 
-UI còn hỗ trợ reject/cancel/revoke flows qua public service API dù command tree không expose tất cả thành subcommand riêng.
+Suggestion cho các lệnh quản lý lấy từ member/request/ban/invitation thực tế, kể cả player offline.
 
 ## Membership và moderation
 
@@ -45,7 +54,8 @@ Ownership transfer chuyển Owner cũ thành `co_owner`; không tạo team activ
 |---|---|---|
 | `/team rename <name>` | Đổi tên và normalized name | `team.rename` |
 | `/team tag <tag>` | Đổi tag 1–8 ký tự | `team.settings.manage` |
-| `/team visibility <public\|private>` | Đổi public discovery | `team.settings.manage` |
+| `/team visibility public` | Chuyển public ngay | `team.settings.manage` |
+| `/team visibility private [confirm]` | Xem hậu quả rồi xác nhận chuyển private | `team.settings.manage` |
 | `/team setting <key> <value>` | Ghi typed Core/addon setting | Permission khai báo bởi setting |
 | `/team disband confirm` | Giải tán team | Owner |
 

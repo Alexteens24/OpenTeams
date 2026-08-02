@@ -1,9 +1,7 @@
 package me.alexisbinh.openteams.api;
 
 import java.util.Optional;
-import java.util.Collection;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletionStage;
 
@@ -16,8 +14,6 @@ import java.util.concurrent.CompletionStage;
 public interface TeamService {
     Optional<TeamSnapshot> findCached(TeamId id);
 
-    Optional<TeamSnapshot> findByPlayerCached(UUID playerId);
-
     MembershipLookup membershipCached(UUID playerId);
 
     TeamRelation relationCached(UUID firstPlayerId, UUID secondPlayerId);
@@ -26,7 +22,7 @@ public interface TeamService {
 
     CompletionStage<Optional<TeamSnapshot>> find(TeamId id);
 
-    CompletionStage<Optional<TeamSnapshot>> findByPlayer(UUID playerId);
+    CompletionStage<MembershipLookup> loadMembership(UUID playerId);
 
     CompletionStage<TeamDirectory.Page<TeamDirectory.TeamSummary>> searchPublicTeams(
             String query, int page, int pageSize);
@@ -42,11 +38,6 @@ public interface TeamService {
     CompletionStage<List<TeamDirectory.Ban>> bans(TeamId teamId);
 
     CompletionStage<List<TeamDirectory.Role>> roles();
-
-    CompletionStage<Map<UUID, TeamDirectory.PlayerSummary>> resolvePlayers(
-            Collection<UUID> playerIds);
-
-    CompletionStage<Void> rememberPlayer(UUID playerId, String currentName);
 
     CompletionStage<OperationResult<TeamSnapshot>> create(TeamRequests.Create request);
 

@@ -52,6 +52,7 @@ Không dùng `Bukkit.getPluginManager().getPlugin("OpenTeams")` rồi cast sang 
 |---|---|
 | `apiVersion()` | API version string |
 | `teams()` | `TeamService` queries và mutations |
+| `players()` | `PlayerDirectory` lookup player theo UUID/tên |
 | `commands()` | Command registry |
 | `placeholders()` | Cache-only placeholder registry |
 | `settings()` | Typed setting registry |
@@ -67,7 +68,6 @@ Cached methods thread-safe và không chạm JDBC:
 
 ```java
 Optional<TeamSnapshot> byId = api.teams().findCached(teamId);
-Optional<TeamSnapshot> byPlayer = api.teams().findByPlayerCached(playerId);
 MembershipLookup membership = api.teams().membershipCached(playerId);
 TeamRelation relation = api.teams().relationCached(firstId, secondId);
 boolean allowed = api.teams().hasPermissionCached(playerId, "example.use");
@@ -90,7 +90,7 @@ Các method sau trả `CompletionStage` và có thể truy cập JDBC:
 
 ```java
 api.teams().find(teamId);
-api.teams().findByPlayer(playerId);
+api.teams().loadMembership(playerId);
 api.teams().searchPublicTeams(query, page, pageSize);
 api.teams().invitations(playerId);
 api.teams().joinRequests(teamId);
@@ -98,8 +98,10 @@ api.teams().joinRequestsByPlayer(playerId);
 api.teams().outgoingInvitations(teamId);
 api.teams().bans(teamId);
 api.teams().roles();
-api.teams().resolvePlayers(playerIds);
-api.teams().rememberPlayer(playerId, currentName);
+api.players().resolve(playerIds);
+api.players().findExact(playerName);
+api.players().search(query, limit);
+api.players().remember(playerId, currentName);
 ```
 
 Directory records là immutable read models: `TeamSummary`, `PlayerSummary`, `Invitation`, `JoinRequest`, `OutgoingInvitation`, `OutgoingJoinRequest`, `Ban`, `Role` và paginated `Page<T>`.
@@ -160,7 +162,7 @@ Request records luôn mang `actorId`; team actions mang `TeamId`; target actions
 
 ## Error codes
 
-`OperationResult.Failure` có `TeamErrorCode`, translation message key và correlation ID.
+`OperationResult.Failure` có `TeamErrorCode`, translation message key, immutable message arguments và correlation ID.
 
 ```text
 NOT_FOUND · FORBIDDEN · INVALID_ARGUMENT · CONFLICT · LIMIT_REACHED
@@ -177,9 +179,10 @@ Authoritative query/mutation hoàn tất trên OpenTeams worker virtual thread. 
 :::
 
 ```java
-api.teams().findByPlayer(player.getUniqueId()).thenAccept(team ->
+api.teams().loadMembership(player.getUniqueId()).thenAccept(membership ->
     player.getScheduler().run(this, task -> {
-        player.sendMessage(Component.text(team.map(TeamSnapshot::name).orElse("No team")));
+        player.sendMessage(Component.text(membership.optionalTeam()
+                .map(TeamSnapshot::name).orElse("No team")));
     }, null)
 );
 ```

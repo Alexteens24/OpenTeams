@@ -24,13 +24,13 @@ Never cast `getPlugin("OpenTeams")` to an implementation type.
 
 ## Entry point
 
-`teams()` exposes queries/mutations; `commands()`, `placeholders()`, `settings()`, `permissions()`, `userInterface()`, `translations()`, and `policies()` expose registries. `apiVersion()` returns the API string and `readOnly()` reports whether writes are unavailable.
+`teams()` exposes team queries/mutations and `players()` exposes the persistent player directory; `commands()`, `placeholders()`, `settings()`, `permissions()`, `userInterface()`, `translations()`, and `policies()` expose registries. `apiVersion()` returns the API string and `readOnly()` reports whether writes are unavailable.
 
 ## Cached and authoritative queries
 
-Thread-safe cache-only methods include `findCached`, `findByPlayerCached`, `membershipCached`, `relationCached`, and `hasPermissionCached`. Membership is `LOADING`, `PRESENT`, `ABSENT`, or `FAILED`; do not treat loading/failure as confirmed absence, and do not treat `TeamRelation.UNKNOWN` as `DIFFERENT`.
+Thread-safe cache-only methods include `findCached`, `membershipCached`, `relationCached`, and `hasPermissionCached`. Membership is `LOADING`, `PRESENT`, `ABSENT`, or `FAILED`; do not treat loading/failure as confirmed absence, and do not treat `TeamRelation.UNKNOWN` as `DIFFERENT`.
 
-Authoritative `CompletionStage` methods include `find`, `findByPlayer`, public search, invitation/request/ban queries, `roles`, `resolvePlayers`, and `rememberPlayer`. They may access JDBC and return immutable records such as `TeamSummary`, `Invitation`, `JoinRequest`, `Ban`, `Role`, and `Page<T>`.
+Authoritative `CompletionStage` methods include `find`, `loadMembership`, public search, invitation/request/ban queries, and `roles`. `PlayerDirectory` provides `resolve`, exact-name lookup, prefix search, and `remember`. They may access JDBC and return immutable records such as `PlayerSummary`, `TeamSummary`, `Invitation`, `JoinRequest`, `Ban`, `Role`, and `Page<T>`.
 
 `TeamSnapshot` contains identity, owner/state/visibility, limit/version/timestamps, copied settings, and copied members. Each `TeamMemberSnapshot` contains role, copied permissions, timestamps, and wildcard-aware `hasPermission`. Snapshots are not live objects.
 
@@ -38,7 +38,7 @@ Authoritative `CompletionStage` methods include `find`, `findByPlayer`, public s
 
 Every write accepts a `TeamRequests` record with `actorId` and returns `CompletionStage<OperationResult<TeamSnapshot>>`. The surface covers create/disband; invite accept/decline/revoke; leave/kick/transfer/role; rename/tag/visibility; request accept/reject/cancel; ban/unban; and typed settings.
 
-Success includes the committed snapshot and correlation ID. Failure includes `TeamErrorCode`, translation key, and correlation ID. Branch on codes, not human messages:
+Success includes the committed snapshot and correlation ID. Failure includes `TeamErrorCode`, translation key, translation arguments, and correlation ID. Branch on codes/keys, not human messages:
 
 ```text
 NOT_FOUND · FORBIDDEN · INVALID_ARGUMENT · CONFLICT · LIMIT_REACHED
